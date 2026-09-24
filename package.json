@@ -1,0 +1,26 @@
+{
+  "name": "@grrowapp/agent-messenger",
+  "version": "0.1.0",
+  "description": "Cross-host peer discovery and messaging for Claude Code sessions (broker + stdio MCP server + CLI). Node only, no build step.",
+  "type": "module",
+  "license": "MIT",
+  "bin": {
+    "agent-messenger": "bin/agent-messenger.js"
+  },
+  "files": [
+    "bin",
+    "src",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "broker": "node bin/agent-messenger.js broker",
+    "mcp": "node bin/agent-messenger.js mcp",
+    "test": "node --test test/"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.27.1"
+  }
+}
