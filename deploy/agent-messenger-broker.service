@@ -1,0 +1,25 @@
+# systemd user unit for the agent-messenger broker.
+#
+# Install (on the broker host, as the user that owns the checkout):
+#   mkdir -p ~/.config/systemd/user
+#   cp deploy/agent-messenger-broker.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now agent-messenger-broker.service
+#   loginctl enable-linger $USER   # keep it running without a login session
+#
+# Adjust ExecStart path / node path to the actual checkout.
+
+[Unit]
+Description=agent-messenger broker (Claude Code session messaging)
+After=network.target
+
+[Service]
+Environment=AGENT_MESSENGER_BIND=0.0.0.0
+Environment=AGENT_MESSENGER_PORT=7901
+# Environment=AGENT_MESSENGER_TOKEN=<token>
+ExecStart=/usr/bin/node /home/vagrant/work/agent-messenger/bin/agent-messenger.js broker
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=default.target
