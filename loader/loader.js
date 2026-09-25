@@ -11,12 +11,11 @@
  *
  * Environment:
  *   AGENT_MESSENGER_CORE_SPEC      npm spec of the body
- *                                  (default: the Gitea git repo,
- *                                   "git+http://192.168.1.202/gitea/agent-hand/messenger.git#semver:^0.3";
+ *                                  (default "@agent-hand/messenger-core@latest";
  *                                   any npm spec works: "@scope/name@1.2.3",
  *                                   "git+http://host/repo.git#tag", "file:/path")
- *   AGENT_MESSENGER_CORE_REGISTRY  registry for the @agent-hand scope when SPEC is a
- *                                  registry spec (default Gitea Packages on 192.168.1.202)
+ *   AGENT_MESSENGER_CORE_REGISTRY  registry for the @agent-hand scope
+ *                                  (default Gitea Packages on 192.168.1.202)
  *   AGENT_MESSENGER_CORE_DIR       cache dir (default ~/.agent-messenger/core)
  *   AGENT_MESSENGER_CORE_REFRESH   "1" = reinstall the body now
  *   AGENT_MESSENGER_CORE_TTL_HOURS re-check a floating spec (latest / tag / range)
@@ -29,12 +28,9 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 const CORE_NAME = "@agent-hand/messenger-core";
-// Default body source: the Gitea git repository (public, anonymous clone, no
-// registry token needed). Tags vX.Y.Z are resolved by semver; "^0.3" floats
-// within the minor line and is re-checked every TTL_HOURS.
-const SPEC =
-  process.env.AGENT_MESSENGER_CORE_SPEC ?? "git+http://192.168.1.202/gitea/agent-hand/messenger.git#semver:^0.3";
-// Used only when SPEC is a registry spec (e.g. "@agent-hand/messenger-core@latest").
+// Default body source: Gitea Packages npm registry (owner agent-hand).
+// "latest" floats and is re-checked every TTL_HOURS.
+const SPEC = process.env.AGENT_MESSENGER_CORE_SPEC ?? `${CORE_NAME}@latest`;
 const REGISTRY =
   process.env.AGENT_MESSENGER_CORE_REGISTRY ?? "http://192.168.1.202/gitea/api/packages/agent-hand/npm/";
 const BASE_DIR = process.env.AGENT_MESSENGER_CORE_DIR ?? join(homedir(), ".agent-messenger", "core");
