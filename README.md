@@ -53,13 +53,15 @@ claude mcp add --scope user --transport stdio agent-messenger \
 
 ### 3. Claude Code の起動
 
-受信メッセージを会話に即時に押し込む（channel push）には起動フラグが要る:
+通常の `claude` 起動でよい。受信メッセージは Claude Code が各セッションに用意する inbox socket（`CLAUDE_CODE_MESSAGING_SOCKET`、MCP 子プロセスに継承される）へ投入され、会話に「別セッションからのメッセージ」として届く（Claude Code v2.1.224 以降、cross-session messaging）。
+
+socket が無い環境（古いバージョン、bare mode 等）では channel push にフォールバックする。channel push は起動フラグが要る:
 
 ```bash
 claude --dangerously-load-development-channels server:agent-messenger
 ```
 
-フラグ無しで起動したセッションは、`check_messages` ツールを呼んだ時だけ受信できる（送信は常に可能）。
+どちらも効かない場合は `check_messages` ツールで受信する（送信は常に可能）。配信方式は `AGENT_MESSENGER_DELIVERY`（`auto` / `socket` / `channel`）で固定できる。
 
 ## ツール（MCP）
 
@@ -89,14 +91,18 @@ npx -y @agent-hand/messenger send master-cap "作業完了"
 | `AGENT_MESSENGER_BIND` | `0.0.0.0` | broker の bind アドレス |
 | `AGENT_MESSENGER_TOKEN` | なし | Bearer トークン。broker と全クライアントで同じ値を設定 |
 | `AGENT_MESSENGER_NAME` | なし | このセッションの名前 |
+| `AGENT_MESSENGER_DELIVERY` | `auto` | 受信配信方式。`auto` = session socket があれば socket、無ければ channel。`socket` / `channel` で固定 |
 | `AGENT_MESSENGER_STATE` | `~/.agent-messenger/broker.json` | broker の状態ファイル |
 
 ## 配信の仕組み
 
 1. mcp が 1 秒ごとに broker を poll し、受信メッセージをローカルバッファに積む。
-2. channel 通知（`notifications/claude/channel`）を試み、成功したら broker に ack して既読にする。
-3. 失敗した（フラグ無し等）メッセージはバッファと broker に残り、`check_messages` で取り出せる。
-4. heartbeat は 15 秒ごと。60 秒途絶えた peer は broker から消える（未配信メッセージも破棄）。
+2. `CLAUDE_CODE_MESSAGING_SOCKET` があれば、その Unix socket に `{"type":"auth","token":…}` と `{"type":"user","message":{"role":"user","content":…}}` を 1 行ずつ書いて投入する（Claude Code の own-child message）。成功したら broker に ack。
+3. socket が無い／失敗したら channel 通知（`notifications/claude/channel`）を試み、成功したら ack。
+4. どちらも失敗したメッセージはバッファと broker に残り、`check_messages` で取り出せる。
+5. heartbeat は 15 秒ごと。60 秒途絶えた peer は broker から消える（未配信メッセージも破棄）。
+
+同一マシン内のセッション間は Claude Code 標準の cross-session messaging（`SendMessage` / `ListAgents`、`/list-agents`）でも送れる。agent-messenger が要るのはホストをまたぐ場合（Remote Control を使わない構成）。
 
 ## テスト
 

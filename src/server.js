@@ -4,6 +4,7 @@ import { ListToolsRequestSchema, CallToolRequestSchema } from "@modelcontextprot
 import { hostname as osHostname } from "node:os";
 import { spawn, spawnSync } from "node:child_process";
 import { mkdirSync, openSync } from "node:fs";
+import { connect as netConnect } from "node:net";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 import {
@@ -20,6 +21,37 @@ const require = createRequire(import.meta.url);
 const { version: VERSION } = require("../package.json");
 const BIN = fileURLToPath(new URL("../bin/agent-messenger.js", import.meta.url));
 const MY_HOSTNAME = osHostname();
+// Claude Code exports its per-session inbox socket to child processes (hooks,
+// Bash, MCP servers). Posting there delivers a message into the session
+// without the channels flag ("own-child message").
+const SESSION_SOCKET = process.env.CLAUDE_CODE_MESSAGING_SOCKET ?? "";
+const SESSION_TOKEN = process.env.CLAUDE_CODE_MESSAGING_TOKEN ?? "";
+// auto: session socket when available, else channel notification. socket / channel: force.
+const DELIVERY = process.env.AGENT_MESSENGER_DELIVERY ?? "auto";
+
+function postToSession(text) {
+  return new Promise((resolve, reject) => {
+    if (!SESSION_SOCKET) return reject(new Error("CLAUDE_CODE_MESSAGING_SOCKET not set"));
+    const sock = netConnect(SESSION_SOCKET);
+    const timer = setTimeout(() => {
+      sock.destroy();
+      reject(new Error("session socket timeout"));
+    }, 5000);
+    sock.on("connect", () => {
+      if (SESSION_TOKEN) sock.write(JSON.stringify({ type: "auth", token: SESSION_TOKEN }) + "\n");
+      sock.write(JSON.stringify({ type: "user", message: { role: "user", content: text } }) + "\n");
+      sock.end();
+    });
+    sock.on("error", (e) => {
+      clearTimeout(timer);
+      reject(e);
+    });
+    sock.on("close", () => {
+      clearTimeout(timer);
+      resolve();
+    });
+  });
+}
 
 /**
  * agent-messenger MCP server (stdio, one per Claude Code session).
@@ -106,7 +138,7 @@ Tools:
 - send_message: send to a peer by name or id (cross-host)
 - set_name: give this session a stable name (e.g. "master-cap", "agent-messenger") so others can address it by name
 - set_summary: describe what you are working on (visible in list_peers)
-- check_messages: read buffered messages. Channel push only works when Claude Code was started with --dangerously-load-development-channels server:agent-messenger; otherwise call check_messages to receive.
+- check_messages: read buffered messages. Inbound messages are normally delivered into the conversation automatically (via the session inbox socket, or via channel push when Claude Code was started with --dangerously-load-development-channels server:agent-messenger). If neither works, call check_messages to receive.
 
 On start, call set_name (if not already named) and set_summary.`,
   }
@@ -284,6 +316,24 @@ async function pollBroker(push) {
     if (localBuffer.length > MAX_BUFFER) localBuffer.splice(0, localBuffer.length - MAX_BUFFER);
     if (!push) continue;
 
+    const useSocket = DELIVERY === "socket" || (DELIVERY === "auto" && SESSION_SOCKET);
+    if (useSocket) {
+      try {
+        const who = `${entry.from_name || entry.from_id}${entry.from_hostname ? `@${entry.from_hostname}` : ""}`;
+        const replyTo = entry.from_name || entry.from_id;
+        await postToSession(
+          `[agent-messenger] message from ${who}\n${msg.text}\n\n(reply with the agent-messenger send_message tool, to: "${replyTo}")`
+        );
+        log(`Session socket delivery OK from ${who}: ${msg.text.slice(0, 80)}`);
+        await brokerFetch("/acknowledge-messages", { id: myId, message_ids: [msg.id] }).catch(() => {});
+        const i = localBuffer.findIndex((b) => b.id === msg.id);
+        if (i !== -1) localBuffer.splice(i, 1);
+        continue;
+      } catch (e) {
+        log(`Session socket delivery FAILED from ${entry.from_id}: ${e.message} — trying channel`);
+      }
+    }
+
     try {
       await mcp.notification({
         method: "notifications/claude/channel",
@@ -326,6 +376,7 @@ export async function startMcpServer() {
   const tty = getTty();
   log(`v${VERSION} host=${MY_HOSTNAME} broker=${BROKER_URL} (${IS_LOCAL_BROKER ? "local" : "remote"})`);
   log(`cwd=${myCwd} git_root=${myGitRoot ?? "(none)"} tty=${tty ?? "(unknown)"} name=${myName || "(unset)"}`);
+  log(`delivery=${DELIVERY} session_socket=${SESSION_SOCKET || "(none)"}`);
 
   const reg = await brokerFetch("/register", {
     pid: process.pid,

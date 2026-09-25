@@ -1,6 +1,7 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
+import { createServer } from "node:net";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -13,8 +14,14 @@ const BIN = fileURLToPath(new URL("../bin/agent-messenger.js", import.meta.url))
 const PORT = 17901 + Math.floor(Math.random() * 1000);
 const TOKEN = "test-token";
 const dir = mkdtempSync(join(tmpdir(), "agent-messenger-"));
+// never let the test post into a real Claude Code session the runner may be a child of
+const baseEnv = { ...process.env };
+delete baseEnv.CLAUDE_CODE_MESSAGING_SOCKET;
+delete baseEnv.CLAUDE_CODE_MESSAGING_TOKEN;
+delete baseEnv.AGENT_MESSENGER_DELIVERY;
+
 const env = {
-  ...process.env,
+  ...baseEnv,
   AGENT_MESSENGER_HOST: "127.0.0.1",
   AGENT_MESSENGER_PORT: String(PORT),
   AGENT_MESSENGER_BIND: "127.0.0.1",
@@ -89,11 +96,11 @@ test("http: register, name resolution, send/poll/ack", async () => {
   await post("/unregister", { id: b.id });
 });
 
-async function mcpClient(name) {
+async function mcpClient(name, extraEnv = {}) {
   const transport = new StdioClientTransport({
     command: process.execPath,
     args: [BIN, "mcp"],
-    env: { ...env, AGENT_MESSENGER_NAME: name },
+    env: { ...env, AGENT_MESSENGER_NAME: name, ...extraEnv },
     stderr: "pipe",
   });
   const client = new Client({ name: `test-${name}`, version: "0" }, { capabilities: {} });
@@ -140,4 +147,46 @@ test("mcp: two sessions exchange a message, channel push + check_messages", asyn
 
   await cap.close();
   await master.close();
+});
+
+test("mcp: inbound message is posted to the session inbox socket when available", async () => {
+  const sockPath = join(dir, "session.sock");
+  const lines = [];
+  const server = createServer((c) => {
+    let buf = "";
+    c.on("data", (d) => {
+      buf += d;
+      let i;
+      while ((i = buf.indexOf("\n")) !== -1) {
+        lines.push(JSON.parse(buf.slice(0, i)));
+        buf = buf.slice(i + 1);
+      }
+    });
+  });
+  await new Promise((r) => server.listen(sockPath, r));
+
+  const cap = await mcpClient("cap-sock", { CLAUDE_CODE_MESSAGING_SOCKET: sockPath, CLAUDE_CODE_MESSAGING_TOKEN: "tok" });
+  const channel = [];
+  cap.setNotificationHandler(
+    z.object({ method: z.literal("notifications/claude/channel"), params: z.any() }),
+    (n) => channel.push(n.params)
+  );
+  const master = await mcpClient("master2");
+  await master.callTool({ name: "send_message", arguments: { to: "cap-sock", message: "via socket" } });
+
+  for (let i = 0; i < 40 && lines.length < 2; i++) await new Promise((r) => setTimeout(r, 100));
+  assert.equal(lines.length, 2, "auth line + user line");
+  assert.deepEqual(lines[0], { type: "auth", token: "tok" });
+  assert.equal(lines[1].type, "user");
+  assert.equal(lines[1].message.role, "user");
+  assert.match(lines[1].message.content, /^\[agent-messenger\] message from master2/);
+  assert.match(lines[1].message.content, /via socket/);
+  assert.equal(channel.length, 0, "no channel push when socket delivery succeeded");
+
+  const cm = await cap.callTool({ name: "check_messages", arguments: {} });
+  assert.match(cm.content[0].text, /No new messages/);
+
+  await cap.close();
+  await master.close();
+  server.close();
 });
