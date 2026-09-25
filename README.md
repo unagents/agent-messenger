@@ -20,10 +20,10 @@ Claude Code セッション同士（同一ホスト・別ホスト）でメッ�
                               └───────────────────────────────────────────┘
 ```
 
-## 起動（npx で Gitea から直接）
+## 起動（npx で 202 の npm registry から）
 
 ```bash
-npx -y git+http://192.168.1.202/gitea/grrowapp/agent-messenger.git <command>
+npx -y @wheal-shark/agent-messenger <command>
 ```
 
 `<command>`: `mcp` / `broker` / `status` / `peers` / `send <name|id> <message...>`
@@ -34,7 +34,7 @@ npx -y git+http://192.168.1.202/gitea/grrowapp/agent-messenger.git <command>
 
 ```bash
 AGENT_MESSENGER_BIND=0.0.0.0 AGENT_MESSENGER_PORT=7901 \
-  npx -y git+http://192.168.1.202/gitea/grrowapp/agent-messenger.git broker
+  npx -y @wheal-shark/agent-messenger broker
 ```
 
 確認: `curl http://192.168.1.202:7901/health` → `{"status":"ok","version":"…","peers":N}`
@@ -45,7 +45,7 @@ AGENT_MESSENGER_BIND=0.0.0.0 AGENT_MESSENGER_PORT=7901 \
 claude mcp add --scope user --transport stdio agent-messenger \
   --env AGENT_MESSENGER_HOST=192.168.1.202 \
   --env AGENT_MESSENGER_PORT=7901 \
-  -- npx -y git+http://192.168.1.202/gitea/grrowapp/agent-messenger.git mcp
+  -- npx -y @wheal-shark/agent-messenger mcp
 ```
 
 セッションに固定名を付けたい場合はプロジェクトの `.mcp.json` で `AGENT_MESSENGER_NAME` を渡す（project scope が user scope より優先）。
@@ -75,9 +75,9 @@ claude --dangerously-load-development-channels server:agent-messenger
 
 ```bash
 export AGENT_MESSENGER_HOST=192.168.1.202
-npx -y git+http://192.168.1.202/gitea/grrowapp/agent-messenger.git status
-npx -y git+http://192.168.1.202/gitea/grrowapp/agent-messenger.git peers
-npx -y git+http://192.168.1.202/gitea/grrowapp/agent-messenger.git send master-cap "作業完了"
+npx -y @wheal-shark/agent-messenger status
+npx -y @wheal-shark/agent-messenger peers
+npx -y @wheal-shark/agent-messenger send master-cap "作業完了"
 ```
 
 ## 環境変数

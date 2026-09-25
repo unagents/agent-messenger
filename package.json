@@ -1,5 +1,5 @@
 {
-  "name": "@grrowapp/agent-messenger",
+  "name": "@wheal-shark/agent-messenger",
   "version": "0.1.0",
   "description": "Cross-host peer discovery and messaging for Claude Code sessions (broker + stdio MCP server + CLI). Node only, no build step.",
   "type": "module",
