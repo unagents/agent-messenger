@@ -149,6 +149,30 @@ test("mcp: two sessions exchange a message, channel push + check_messages", asyn
   await master.close();
 });
 
+test("mcp: re-registers with the same name after the broker forgets it", async () => {
+  const cap = await mcpClient("cap-reg", { AGENT_MESSENGER_HEARTBEAT_MS: "300" });
+  const before = await post("/list-peers", { scope: "all", cwd: "/", git_root: null });
+  const me = before.find((p) => p.name === "cap-reg");
+  assert.ok(me, "registered");
+
+  // simulate broker restart / stale cleanup: drop the peer server-side
+  await post("/unregister", { id: me.id });
+  for (let i = 0; i < 30; i++) {
+    await new Promise((r) => setTimeout(r, 100));
+    const now = await post("/list-peers", { scope: "all", cwd: "/", git_root: null });
+    if (now.some((p) => p.name === "cap-reg" && p.id !== me.id)) break;
+  }
+  const after = await post("/list-peers", { scope: "all", cwd: "/", git_root: null });
+  const again = after.find((p) => p.name === "cap-reg");
+  assert.ok(again, "re-registered");
+  assert.notEqual(again.id, me.id);
+
+  // and it is reachable by name again
+  const sent = await post("/send-message", { from_id: "cli", to: "cap-reg", text: "back" });
+  assert.equal(sent.ok, true);
+  await cap.close();
+});
+
 test("mcp: inbound message is posted to the session inbox socket when available", async () => {
   const sockPath = join(dir, "session.sock");
   const lines = [];

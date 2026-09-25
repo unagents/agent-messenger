@@ -22,6 +22,6 @@ export const STATE_FILE = process.env.AGENT_MESSENGER_STATE ?? join(STATE_DIR, "
 export const BROKER_URL = `http://${HOST}:${PORT}`;
 export const IS_LOCAL_BROKER = HOST === "127.0.0.1" || HOST === "localhost";
 
-export const HEARTBEAT_INTERVAL_MS = 15_000;
+export const HEARTBEAT_INTERVAL_MS = parseInt(process.env.AGENT_MESSENGER_HEARTBEAT_MS ?? "15000", 10);
 export const HEARTBEAT_TIMEOUT_MS = 60_000;
 export const POLL_INTERVAL_MS = 1000;

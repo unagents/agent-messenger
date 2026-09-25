@@ -132,6 +132,7 @@ function handleHeartbeat(body) {
   const p = peers.get(body.id);
   if (!p) return { ok: false, error: "unknown peer (re-register)" };
   p.last_seen = new Date().toISOString();
+  scheduleSave(); // keep last_seen fresh on disk so peers survive a broker restart
   return { ok: true };
 }
 

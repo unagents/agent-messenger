@@ -113,6 +113,7 @@ function getTty() {
 
 let myId = null;
 let myName = NAME;
+let mySummary = "";
 const myCwd = process.cwd();
 let myGitRoot = null;
 
@@ -260,6 +261,7 @@ mcp.setRequestHandler(CallToolRequestSchema, async (req) => {
       case "set_summary": {
         const r = await brokerFetch("/set-summary", { id: myId, summary: args.summary });
         if (!r.ok) return text(`Failed: ${r.error}`, true);
+        mySummary = args.summary;
         return text(`Summary updated: "${args.summary}"`);
       }
       case "check_messages": {
@@ -378,28 +380,37 @@ export async function startMcpServer() {
   log(`cwd=${myCwd} git_root=${myGitRoot ?? "(none)"} tty=${tty ?? "(unknown)"} name=${myName || "(unset)"}`);
   log(`delivery=${DELIVERY} session_socket=${SESSION_SOCKET || "(none)"}`);
 
-  const reg = await brokerFetch("/register", {
-    pid: process.pid,
-    hostname: MY_HOSTNAME,
-    cwd: myCwd,
-    git_root: myGitRoot,
-    tty,
-    summary: "",
-    name: myName,
-  });
-  myId = reg.id;
-  log(`Registered as peer ${myId}`);
+  const register = async () => {
+    const reg = await brokerFetch("/register", {
+      pid: process.pid,
+      hostname: MY_HOSTNAME,
+      cwd: myCwd,
+      git_root: myGitRoot,
+      tty,
+      summary: mySummary,
+      name: myName,
+    });
+    myId = reg.id;
+    log(`Registered as peer ${myId}`);
+  };
+  await register();
 
   await mcp.connect(new StdioServerTransport());
   log("MCP connected");
 
   const pollTimer = setInterval(pollLoop, POLL_INTERVAL_MS);
-  const heartbeatTimer = setInterval(() => {
-    brokerFetch("/heartbeat", { id: myId })
-      .then((r) => {
-        if (r && r.ok === false) log(`Heartbeat rejected: ${r.error}`);
-      })
-      .catch(() => {});
+  // Heartbeat; if the broker no longer knows us (restart, stale cleanup), re-register
+  // so the session keeps its name and stays reachable without a Claude Code restart.
+  const heartbeatTimer = setInterval(async () => {
+    try {
+      const r = await brokerFetch("/heartbeat", { id: myId });
+      if (r && r.ok === false) {
+        log(`Heartbeat rejected (${r.error}) — re-registering`);
+        await register();
+      }
+    } catch {
+      // broker down; try again next tick
+    }
   }, HEARTBEAT_INTERVAL_MS);
 
   const cleanup = async () => {
