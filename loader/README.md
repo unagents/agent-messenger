@@ -9,8 +9,8 @@
 
 | 変数 | 既定 | 用途 |
 |---|---|---|
-| `AGENT_MESSENGER_CORE_SPEC` | `@agent-hand/messenger-core@latest` | 本体の npm spec。`@scope/name@1.2.3` / `git+http://…#tag` / `file:/path` など npm が解釈できるもの全て |
-| `AGENT_MESSENGER_CORE_REGISTRY` | `http://192.168.1.202/gitea/api/packages/agent-hand/npm/` | `@agent-hand` scope の取得先 registry |
+| `AGENT_MESSENGER_CORE_SPEC` | `git+http://192.168.1.202/gitea/agent-hand/messenger.git#semver:^0.3` | 本体の npm spec。既定は Gitea の git リポジトリ（公開、トークン不要、タグ `vX.Y.Z` を semver 解決）。`@scope/name@1.2.3` / `git+http://…#tag` / `file:/path` など npm が解釈できるもの全て |
+| `AGENT_MESSENGER_CORE_REGISTRY` | `http://192.168.1.202/gitea/api/packages/agent-hand/npm/` | SPEC が registry 指定（`@agent-hand/messenger-core@…`）の時の取得先。Gitea Packages に publish した後に切り替える用 |
 | `AGENT_MESSENGER_CORE_DIR` | `~/.agent-messenger/core` | キャッシュ先 |
 | `AGENT_MESSENGER_CORE_REFRESH` | なし | `1` で本体を再取得 |
 | `AGENT_MESSENGER_CORE_TTL_HOURS` | `24` | 版固定でない spec の再確認間隔。`0` で毎回確認 |

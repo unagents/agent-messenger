@@ -6,7 +6,7 @@ Claude Code セッション同士（同一ホスト・別ホスト）でメッ�
 配布は 2 パッケージ:
 
 - **`@agent-hand/messenger`（loader、`loader/`）** — `npx` が引く薄いランチャー。Verdaccio（`http://192.168.1.202/npm/`）に置く。本体を設定可能な npm ソースから取得・キャッシュして実行する。詳細は `loader/README.md`。
-- **`@agent-hand/messenger-core`（本体、このリポジトリのルート）** — Gitea Packages（`http://192.168.1.202/gitea/api/packages/agent-hand/npm/`）に置く。置き場を変えても loader の環境変数で追従でき、`claude mcp add` の登録は変わらない。
+- **`@agent-hand/messenger-core`（本体、このリポジトリのルート）** — Gitea に置く。既定は git リポジトリ `agent-hand/messenger` のタグ `vX.Y.Z` を npm の git spec で取得（公開リポジトリなのでトークン不要）。Gitea Packages（`http://192.168.1.202/gitea/api/packages/agent-hand/npm/`）へ publish した場合は loader の環境変数で切り替える。置き場を変えても `claude mcp add` の登録は変わらない。
 
 本体の構成:
 
@@ -121,7 +121,10 @@ broker 起動、HTTP API、MCP 2 セッション間の送受信（channel 通知
 ## 公開手順
 
 ```bash
-# 本体 → Gitea Packages（~/.npmrc に //192.168.1.202/gitea/api/packages/agent-hand/npm/:_authToken=<token> が要る）
+# 本体 → Gitea git リポジトリにタグを打って push（loader の既定はこれを取得する）
+git tag v0.3.0 && git push origin master --tags
+
+# （任意）本体 → Gitea Packages。~/.npmrc に //192.168.1.202/gitea/api/packages/agent-hand/npm/:_authToken=<token> が要る
 npm publish --registry http://192.168.1.202/gitea/api/packages/agent-hand/npm/
 
 # loader → Verdaccio（~/.npmrc の @agent-hand:registry=http://192.168.1.202/npm/ を使う）
