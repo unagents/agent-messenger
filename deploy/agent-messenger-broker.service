@@ -7,7 +7,9 @@
 #   systemctl --user enable --now agent-messenger-broker.service
 #   loginctl enable-linger $USER   # keep it running without a login session
 #
-# Adjust ExecStart path / node path to the actual checkout.
+# Runs through the loader: npx fetches @agent-hand/messenger (Verdaccio),
+# which fetches @agent-hand/messenger-core (Gitea Packages). Adjust the npx
+# path if it differs on the host (`which npx`).
 
 [Unit]
 Description=agent-messenger broker (Claude Code session messaging)
@@ -17,7 +19,7 @@ After=network.target
 Environment=AGENT_MESSENGER_BIND=0.0.0.0
 Environment=AGENT_MESSENGER_PORT=7901
 # Environment=AGENT_MESSENGER_TOKEN=<token>
-ExecStart=/usr/bin/node /home/vagrant/work/agent-messenger/bin/agent-messenger.js broker
+ExecStart=/usr/bin/npx -y @agent-hand/messenger broker
 Restart=always
 RestartSec=3
 
