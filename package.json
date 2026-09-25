@@ -1,7 +1,7 @@
 {
-  "name": "@agent-hand/messenger",
-  "version": "0.2.0",
-  "description": "Cross-host peer discovery and messaging for Claude Code sessions (broker + stdio MCP server + CLI). Node only, no build step.",
+  "name": "@agent-hand/messenger-core",
+  "version": "0.3.0",
+  "description": "agent-messenger core: broker + stdio MCP server + CLI for Claude Code session messaging. Launched via the @agent-hand/messenger loader.",
   "type": "module",
   "license": "MIT",
   "bin": {
@@ -18,7 +18,7 @@
   "scripts": {
     "broker": "node bin/agent-messenger.js broker",
     "mcp": "node bin/agent-messenger.js mcp",
-    "test": "node --test test/"
+    "test": "node --test"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.27.1"

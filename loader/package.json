@@ -1,0 +1,17 @@
+{
+  "name": "@agent-hand/messenger",
+  "version": "0.3.0",
+  "description": "Loader for agent-messenger. Fetches @agent-hand/messenger-core from a configurable npm source (default: Gitea Packages), caches it, and runs it. Zero dependencies.",
+  "type": "module",
+  "license": "MIT",
+  "bin": {
+    "agent-messenger": "loader.js"
+  },
+  "files": [
+    "loader.js",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  }
+}

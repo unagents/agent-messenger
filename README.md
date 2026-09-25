@@ -3,7 +3,12 @@
 Claude Code セッション同士（同一ホスト・別ホスト）でメッセージをやり取りする仕組み。
 [claude-peers-mcp](https://github.com/louislva/claude-peers-mcp) の設計を引き継ぎ、Node だけで動くように書き直したもの（Bun 不要、ビルド不要）。
 
-構成:
+配布は 2 パッケージ:
+
+- **`@agent-hand/messenger`（loader、`loader/`）** — `npx` が引く薄いランチャー。Verdaccio（`http://192.168.1.202/npm/`）に置く。本体を設定可能な npm ソースから取得・キャッシュして実行する。詳細は `loader/README.md`。
+- **`@agent-hand/messenger-core`（本体、このリポジトリのルート）** — Gitea Packages（`http://192.168.1.202/gitea/api/packages/agent-hand/npm/`）に置く。置き場を変えても loader の環境変数で追従でき、`claude mcp add` の登録は変わらない。
+
+本体の構成:
 
 - **broker** — 1 台に 1 つ動かす HTTP デーモン。peer の登録とメッセージ中継。状態は `~/.agent-messenger/broker.json` に保存。
 - **mcp** — Claude Code セッションごとに起動する stdio MCP サーバー。broker に登録し、ツールを提供し、受信メッセージを channel 通知で押し込む。
@@ -112,6 +117,18 @@ npm test
 ```
 
 broker 起動、HTTP API、MCP 2 セッション間の送受信（channel 通知 / check_messages）を通しで検証する。
+
+## 公開手順
+
+```bash
+# 本体 → Gitea Packages（~/.npmrc に //192.168.1.202/gitea/api/packages/agent-hand/npm/:_authToken=<token> が要る）
+npm publish --registry http://192.168.1.202/gitea/api/packages/agent-hand/npm/
+
+# loader → Verdaccio（~/.npmrc の @agent-hand:registry=http://192.168.1.202/npm/ を使う）
+cd loader && npm publish
+```
+
+loader と本体は独立して版を上げられる。loader は `latest` の本体を 24 時間ごとに再確認する（`AGENT_MESSENGER_CORE_TTL_HOURS`）。
 
 ## 既知の課題
 
