@@ -26,7 +26,8 @@
   },
   "scripts": {
     "build": "unbuild",
-    "typecheck": "tsgo -p tsconfig.json"
+    "typecheck": "tsgo -p tsconfig.json",
+    "test": "vitest run"
   },
   "dependencies": {},
   "devDependencies": {
