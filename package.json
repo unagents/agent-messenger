@@ -11,7 +11,8 @@
   },
   "homepage": "http://192.168.1.202/gitea/agent-hand/messenger",
   "workspaces": [
-    "packages/*"
+    "packages/*",
+    "!packages/client-*"
   ],
   "engines": {
     "node": ">=20"

@@ -1,0 +1,26 @@
+{
+  "name": "@agent-hand/messenger-client-linux-x64",
+  "version": "0.5.0",
+  "description": "agent-messenger client, native linux-x64 build (PerryTS). Selected by @agent-hand/messenger over the node client when installable.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "http://192.168.1.202/gitea/agent-hand/messenger.git",
+    "directory": "packages/client-linux-x64"
+  },
+  "os": [
+    "linux"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "bin": {
+    "messenger-client": "./bin/messenger-client"
+  },
+  "files": [
+    "bin"
+  ],
+  "publishConfig": {
+    "registry": "http://192.168.1.202/gitea/api/packages/agent-hand/npm/"
+  }
+}
