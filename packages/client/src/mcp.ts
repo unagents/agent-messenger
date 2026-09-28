@@ -158,19 +158,28 @@ export function createStdioServer(opts: McpStdioServerOptions): McpStdioServer {
     connect() {
       let buf = "";
       process.stdin.setEncoding("utf8");
-      process.stdin.on("data", (chunk: string) => {
-        buf += chunk;
-        let i: number;
-        while ((i = buf.indexOf("\n")) !== -1) {
-          const line = buf.slice(0, i);
-          buf = buf.slice(i + 1);
-          handleLine(line);
+      // Read stdin with `for await` rather than `on("data")`. In node the two are
+      // equivalent, but on the PerryTS native runtime `data` listeners are only pumped
+      // when the event loop wakes (1 s idle cap), so every request could wait up to
+      // ~1 s; the async iterator resumes as soon as bytes arrive (measured ~1 ms).
+      // See reports/20260928-ts-05-stdin.md.
+      const read = async () => {
+        try {
+          for await (const chunk of process.stdin) {
+            buf += chunk as string;
+            let i: number;
+            while ((i = buf.indexOf("\n")) !== -1) {
+              const line = buf.slice(0, i);
+              buf = buf.slice(i + 1);
+              handleLine(line);
+            }
+          }
+        } catch (e) {
+          onError(e instanceof Error ? e : new Error(String(e)));
         }
-      });
-      process.stdin.on("error", (e: Error) => onError(e));
-      process.stdin.on("close", () => {
         if (opts.onClose) opts.onClose();
-      });
+      };
+      read().catch(onError);
     },
   };
 }
