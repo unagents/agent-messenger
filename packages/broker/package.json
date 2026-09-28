@@ -13,7 +13,8 @@
     ".": {
       "types": "./dist/index.d.mts",
       "import": "./dist/index.mjs"
-    }
+    },
+    "./main": "./dist/main.mjs"
   },
   "files": [
     "dist"
@@ -26,9 +27,14 @@
   },
   "scripts": {
     "build": "unbuild",
-    "typecheck": "tsgo -p tsconfig.json"
+    "typecheck": "tsgo -p tsconfig.json",
+    "test": "vitest run"
   },
   "dependencies": {
-    "@agent-hand/messenger-protocol": "0.5.0"
+    "@agent-hand/messenger-protocol": "0.5.0",
+    "consola": "^3.4.2",
+    "defu": "^6.1.7",
+    "h3": "^1.15.11",
+    "listhen": "^1.10.1"
   }
 }

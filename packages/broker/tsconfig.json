@@ -1,4 +1,11 @@
 {
   "extends": "../../tsconfig.base.json",
-  "include": ["src", "test", "build.config.ts"]
+  "include": [
+    "src",
+    "test",
+    "build.config.ts"
+  ],
+  "compilerOptions": {
+    "resolveJsonModule": true
+  }
 }
