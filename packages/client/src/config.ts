@@ -20,6 +20,13 @@ export type Env = Record<string, string | undefined>;
 export type DeliveryMode = "auto" | "socket" | "channel";
 
 /**
+ * How the message text reaches the session: `push` (default) delivers the text
+ * itself; `pull` delivers only an unread notice and the text is returned by
+ * `check_messages`.
+ */
+export type BodyMode = "push" | "pull";
+
+/**
  * Client configuration, read from the environment once at startup.
  * Same variables and defaults as the current `src/config.js` / `src/server.js`.
  */
@@ -40,6 +47,8 @@ export interface ClientConfig {
   sessionSocket: string;
   sessionToken: string;
   delivery: DeliveryMode;
+  /** `AGENT_MESSENGER_BODY`; anything other than `"pull"` is `"push"`. */
+  body: BodyMode;
   brokerCmd: string;
 }
 
@@ -62,6 +71,7 @@ export function loadConfig(env: Env): ClientConfig {
     sessionSocket: env[SESSION_SOCKET_ENV] ?? "",
     sessionToken: env[SESSION_TOKEN_ENV] ?? "",
     delivery: (env[ENV.DELIVERY] ?? "auto") as DeliveryMode,
+    body: (env[ENV.BODY] ?? "").trim().toLowerCase() === "pull" ? "pull" : "push",
     brokerCmd: env[BROKER_CMD_ENV] ?? DEFAULT_BROKER_CMD,
   };
 }

@@ -1,6 +1,6 @@
 {
   "name": "@agent-hand/messenger-protocol",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "agent-messenger protocol: types and constants shared by broker, client and CLI. No runtime logic.",
   "type": "module",
   "license": "MIT",
