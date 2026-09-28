@@ -1,0 +1,561 @@
+#!/usr/bin/env node
+/**
+ * End-to-end check of the release layout without any external registry:
+ *
+ *   node scripts/e2e-mcp.mjs [--broker direct|cli] [--no-native] [--no-node]
+ *
+ * 1. `npm pack`s packages/{protocol,broker,client,client-<platform>-<arch>} into a temp dir and
+ *    serves them from an in-process npm registry on 127.0.0.1 (packument + tarball);
+ *    packages/protocol is served too because the broker depends on it.
+ * 2. Starts the broker: `direct` = node packages/broker/dist/main.mjs (needs node_modules),
+ *    `cli` = `agent-messenger broker` installed from the mock registry. Fixed port, token,
+ *    discovery on (own discovery port, loopback only).
+ * 3. Through packages/cli/dist/main.mjs (installing from the mock registry):
+ *    discover → mcp (native, auto) → mcp (node) → set_name / send_message / check_messages
+ *    both ways → session socket delivery (unix socket server in this process) →
+ *    peers / status / send → node fallback when the platform package is missing →
+ *    `agent-messenger broker` (cli mode only when --broker direct, as an extra check).
+ *
+ * Environment (all optional):
+ *   E2E_PORT (17901)  E2E_DISCOVERY_PORT (17902)  E2E_DISCOVERY_ADDR (127.0.0.1)
+ *   E2E_BIND (127.0.0.1)  E2E_TOKEN (random)
+ *   E2E_BROKER_HOST / E2E_BROKER_PORT: use an already running broker instead (skips discovery)
+ *   E2E_CLI: path of the CLI entry to drive (default packages/cli/dist/main.mjs)
+ *   E2E_KEEP=1: keep the temp dir
+ *
+ * Never talks to 192.168.1.202: AGENT_MESSENGER_* / CLAUDE_CODE_MESSAGING_* are stripped
+ * from the child environment, the config file is pointed at an empty temp path and
+ * discovery is restricted to E2E_DISCOVERY_ADDR.
+ */
+import { execFileSync, spawn } from "node:child_process";
+import { randomBytes } from "node:crypto";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { createServer as createHttpServer } from "node:http";
+import { createServer as createNetServer } from "node:net";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const ROOT = resolve(fileURLToPath(new URL("..", import.meta.url)));
+/** the CLI under test; E2E_CLI points at an installed copy (e.g. node_modules/@agent-hand/messenger/dist/main.mjs) */
+const CLI = process.env.E2E_CLI ?? join(ROOT, "packages", "cli", "dist", "main.mjs");
+const BROKER_MAIN = join(ROOT, "packages", "broker", "dist", "main.mjs");
+const TARGET = `${process.platform}-${process.arch}`;
+const NATIVE_PKG = `@agent-hand/messenger-client-${TARGET}`;
+
+const args = process.argv.slice(2);
+const opt = (name, dflt) => {
+  const i = args.indexOf(name);
+  return i === -1 ? dflt : args[i + 1];
+};
+const brokerMode = opt("--broker", "direct");
+const doNative = !args.includes("--no-native");
+const doNode = !args.includes("--no-node");
+
+const PORT = Number(process.env.E2E_PORT ?? 17901);
+const DISCOVERY_PORT = Number(process.env.E2E_DISCOVERY_PORT ?? 17902);
+const DISCOVERY_ADDR = process.env.E2E_DISCOVERY_ADDR ?? "127.0.0.1";
+const BIND = process.env.E2E_BIND ?? "127.0.0.1";
+const TOKEN = process.env.E2E_TOKEN ?? randomBytes(8).toString("hex");
+const REMOTE_HOST = process.env.E2E_BROKER_HOST ?? "";
+const REMOTE_PORT = Number(process.env.E2E_BROKER_PORT ?? PORT);
+const BROKER_URL = REMOTE_HOST ? `http://${REMOTE_HOST}:${REMOTE_PORT}` : `http://127.0.0.1:${PORT}`;
+
+const TMP = mkdtempSync(join(process.env.TMPDIR ?? tmpdir(), "am-e2e-"));
+const NPM_CACHE = join(TMP, "npmcache");
+const children = new Set();
+const results = [];
+let failed = 0;
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const log = (m) => console.log(`[e2e] ${m}`);
+function pass(name, detail = "") {
+  results.push({ name, ok: true, detail });
+  console.log(`PASS ${name}${detail ? ` — ${detail}` : ""}`);
+}
+function fail(name, detail = "") {
+  failed++;
+  results.push({ name, ok: false, detail });
+  console.log(`FAIL ${name}${detail ? ` — ${detail}` : ""}`);
+}
+function check(name, cond, detail = "") {
+  if (cond) pass(name, detail);
+  else fail(name, detail);
+  return Boolean(cond);
+}
+
+// ---------------------------------------------------------------- mock registry
+async function startRegistry() {
+  const packages = new Map(); // name -> { latest, versions: Map<version, {tgz, file, integrity, shasum, manifest}> }
+  const packDest = join(TMP, "pack");
+  mkdirSync(packDest, { recursive: true });
+  let url = "";
+  const server = createHttpServer((req, res) => {
+    const path = decodeURIComponent((req.url ?? "/").split("?")[0]);
+    const tarball = path.match(/^\/-\/tarball\/(.+)\/(.+\.tgz)$/);
+    if (tarball) {
+      const stored = packages.get(tarball[1])?.versions;
+      const v = stored ? [...stored.values()].find((s) => s.file === tarball[2]) : undefined;
+      if (!v) return res.writeHead(404, { "content-type": "application/json" }).end('{"error":"not found"}');
+      return res.writeHead(200, { "content-type": "application/octet-stream", "content-length": v.tgz.length }).end(v.tgz);
+    }
+    const name = path.replace(/^\//, "");
+    const pkg = packages.get(name);
+    if (!pkg) return res.writeHead(404, { "content-type": "application/json" }).end('{"error":"not found"}');
+    const versions = {};
+    for (const [version, v] of pkg.versions) {
+      versions[version] = { ...v.manifest, dist: { tarball: `${url}-/tarball/${name}/${v.file}`, integrity: v.integrity, shasum: v.shasum } };
+    }
+    res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ name, "dist-tags": { latest: pkg.latest }, versions }));
+  });
+  await new Promise((r) => server.listen(0, "127.0.0.1", r));
+  url = `http://127.0.0.1:${server.address().port}/`;
+  return {
+    url,
+    publish(dir) {
+      const out = JSON.parse(
+        execFileSync("npm", ["pack", "--json", "--pack-destination", packDest, dir], {
+          encoding: "utf8",
+          env: { ...process.env, npm_config_cache: NPM_CACHE, npm_config_update_notifier: "false" },
+          stdio: ["ignore", "pipe", "ignore"],
+        })
+      )[0];
+      const manifest = JSON.parse(readFileSync(join(dir, "package.json"), "utf8"));
+      const entry = packages.get(out.name) ?? { latest: out.version, versions: new Map() };
+      entry.versions.set(out.version, { tgz: readFileSync(join(packDest, out.filename)), file: out.filename, integrity: out.integrity, shasum: out.shasum, manifest });
+      entry.latest = out.version;
+      packages.set(out.name, entry);
+      return { name: out.name, version: out.version, filename: out.filename, size: entry.versions.get(out.version).tgz.length };
+    },
+    unpublish(name) {
+      packages.delete(name);
+    },
+    close: () => new Promise((r) => server.close(() => r())),
+  };
+}
+
+// ---------------------------------------------------------------- processes
+function baseEnv(extra = {}) {
+  const env = { ...process.env };
+  for (const k of Object.keys(env)) if (k.startsWith("AGENT_MESSENGER_") || k.startsWith("CLAUDE_CODE_MESSAGING_")) delete env[k];
+  delete env.NODE_ENV;
+  delete env.TEST;
+  delete env.VITEST;
+  env.NO_COLOR = "1";
+  env.npm_config_cache = NPM_CACHE;
+  env.npm_config_update_notifier = "false";
+  return { ...env, ...extra };
+}
+
+function cliEnv(registryUrl, pkgsDir, extra = {}) {
+  return baseEnv({
+    AGENT_MESSENGER_REGISTRY: registryUrl,
+    AGENT_MESSENGER_PKGS_DIR: pkgsDir,
+    AGENT_MESSENGER_PORT: String(REMOTE_HOST ? REMOTE_PORT : PORT),
+    AGENT_MESSENGER_TOKEN: TOKEN,
+    AGENT_MESSENGER_CONFIG: join(TMP, "no-config.json"),
+    AGENT_MESSENGER_DISCOVERY_PORT: String(DISCOVERY_PORT),
+    AGENT_MESSENGER_DISCOVERY_ADDR: DISCOVERY_ADDR,
+    ...(REMOTE_HOST ? { AGENT_MESSENGER_HOST: REMOTE_HOST } : {}),
+    ...extra,
+  });
+}
+
+function track(p) {
+  children.add(p);
+  p.on("exit", () => children.delete(p));
+  return p;
+}
+
+/** run the CLI to completion */
+function runCli(cliArgs, env) {
+  return new Promise((resolveP, reject) => {
+    const p = track(spawn(process.execPath, [CLI, ...cliArgs], { env, stdio: ["ignore", "pipe", "pipe"] }));
+    let stdout = "";
+    let stderr = "";
+    p.stdout.setEncoding("utf8").on("data", (d) => (stdout += d));
+    p.stderr.setEncoding("utf8").on("data", (d) => (stderr += d));
+    p.on("error", reject);
+    p.on("close", (status) => resolveP({ status, stdout, stderr }));
+  });
+}
+
+async function waitHealth(url, tries = 60) {
+  for (let i = 0; i < tries; i++) {
+    try {
+      const r = await fetch(`${url}/health`);
+      if (r.ok) return await r.json();
+    } catch {
+      // not yet
+    }
+    await sleep(200);
+  }
+  return null;
+}
+
+async function startBrokerDirect() {
+  const env = baseEnv({
+    AGENT_MESSENGER_PORT: String(PORT),
+    AGENT_MESSENGER_BIND: BIND,
+    AGENT_MESSENGER_TOKEN: TOKEN,
+    AGENT_MESSENGER_DISCOVERY: "on",
+    AGENT_MESSENGER_DISCOVERY_PORT: String(DISCOVERY_PORT),
+    AGENT_MESSENGER_STATE: join(TMP, "broker.json"),
+    AGENT_MESSENGER_BROKER_ID: "e2e-broker",
+  });
+  const p = track(spawn(process.execPath, [BROKER_MAIN], { env, stdio: ["ignore", "ignore", "pipe"] }));
+  let stderr = "";
+  p.stderr.setEncoding("utf8").on("data", (d) => (stderr += d));
+  const exited = new Promise((r) => p.on("exit", (c, sig) => r(c ?? sig)));
+  const h = await waitHealth(BROKER_URL);
+  return { proc: p, health: h, stderr: () => stderr, exited };
+}
+
+async function startBrokerCli(registryUrl, pkgsDir, port, discovery) {
+  const env = cliEnv(registryUrl, pkgsDir, {
+    AGENT_MESSENGER_PORT: String(port),
+    AGENT_MESSENGER_BIND: BIND,
+    AGENT_MESSENGER_DISCOVERY: discovery ? "on" : "off",
+    AGENT_MESSENGER_STATE: join(TMP, `broker-cli-${port}.json`),
+    AGENT_MESSENGER_BROKER_ID: "e2e-broker-cli",
+  });
+  const p = track(spawn(process.execPath, [CLI, "broker"], { env, stdio: ["ignore", "ignore", "pipe"] }));
+  let stderr = "";
+  p.stderr.setEncoding("utf8").on("data", (d) => (stderr += d));
+  const exited = new Promise((r) => p.on("exit", (c, sig) => r(c ?? sig)));
+  let h = null;
+  for (let i = 0; i < 300 && h === null && p.exitCode === null; i++) h = await waitHealth(`http://127.0.0.1:${port}`, 1);
+  return { proc: p, health: h, stderr: () => stderr, exited };
+}
+
+/** MCP stdio client over `agent-messenger mcp` */
+class Mcp {
+  constructor(label, env) {
+    this.label = label;
+    this.notifications = [];
+    this.stderr = "";
+    this.pending = new Map();
+    this.nextId = 1;
+    this.buf = "";
+    this.proc = track(spawn(process.execPath, [CLI, "mcp"], { env, stdio: ["pipe", "pipe", "pipe"] }));
+    this.proc.stdout.setEncoding("utf8").on("data", (chunk) => {
+      this.buf += chunk;
+      let i;
+      while ((i = this.buf.indexOf("\n")) !== -1) {
+        const line = this.buf.slice(0, i);
+        this.buf = this.buf.slice(i + 1);
+        this.onLine(line);
+      }
+    });
+    this.proc.stderr.setEncoding("utf8").on("data", (d) => (this.stderr += d));
+    this.exited = new Promise((r) => this.proc.on("exit", (code, sig) => r(code ?? sig)));
+  }
+  onLine(line) {
+    let msg;
+    try {
+      msg = JSON.parse(line);
+    } catch {
+      return;
+    }
+    if (typeof msg.id === "number" && this.pending.has(msg.id)) {
+      const p = this.pending.get(msg.id);
+      this.pending.delete(msg.id);
+      if (msg.error) p.reject(new Error(`${msg.error.code} ${msg.error.message}`));
+      else p.resolve(msg.result);
+    } else if (typeof msg.method === "string") {
+      this.notifications.push({ method: msg.method, params: msg.params });
+    }
+  }
+  request(method, params, timeoutMs = 15000) {
+    const id = this.nextId++;
+    return new Promise((resolveP, reject) => {
+      const t = setTimeout(() => {
+        this.pending.delete(id);
+        reject(new Error(`${this.label}: ${method} timed out after ${timeoutMs} ms\n--- stderr ---\n${this.stderr}`));
+      }, timeoutMs);
+      this.pending.set(id, {
+        resolve: (v) => {
+          clearTimeout(t);
+          resolveP(v);
+        },
+        reject: (e) => {
+          clearTimeout(t);
+          reject(e);
+        },
+      });
+      this.proc.stdin.write(JSON.stringify({ jsonrpc: "2.0", id, method, params }) + "\n");
+    });
+  }
+  async initialize() {
+    const r = await this.request("initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "e2e", version: "0" } }, 60000);
+    this.proc.stdin.write(JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }) + "\n");
+    return r;
+  }
+  async tool(name, args = {}) {
+    const r = await this.request("tools/call", { name, arguments: args });
+    return { text: r.content.map((c) => c.text).join("\n"), isError: Boolean(r.isError) };
+  }
+  async waitNotification(pred, timeoutMs = 6000) {
+    const t0 = Date.now();
+    while (Date.now() - t0 < timeoutMs) {
+      const n = this.notifications.find(pred);
+      if (n) return n;
+      await sleep(100);
+    }
+    return null;
+  }
+  async close() {
+    this.proc.stdin.end();
+    const t = setTimeout(() => this.proc.kill("SIGKILL"), 10000);
+    const code = await this.exited;
+    clearTimeout(t);
+    return code;
+  }
+}
+
+/** send_message A→B, then read on B: channel notification and/or check_messages */
+async function exchange(a, b, toName, text) {
+  const s = await a.tool("send_message", { to: toName, message: text });
+  const c = await b.tool("check_messages");
+  const viaCheck = c.text.includes(text);
+  let viaChannel = false;
+  if (!viaCheck) viaChannel = Boolean(await b.waitNotification((n) => n.method === "notifications/claude/channel" && n.params?.content === text));
+  return { sent: s, viaCheck, viaChannel, checkText: c.text };
+}
+
+async function mcpFlow(a, b, aName, bName) {
+  const ia = await a.initialize();
+  check(`${a.label}: initialize`, ia.serverInfo?.name === "agent-messenger" && ia.protocolVersion === "2025-06-18", `serverInfo=${JSON.stringify(ia.serverInfo)}`);
+  const tl = await a.request("tools/list");
+  const names = (tl.tools ?? []).map((t) => t.name).join(",");
+  check(`${a.label}: tools/list`, names === "list_peers,send_message,set_name,set_summary,check_messages", names);
+  const sn = await a.tool("set_name", { name: aName });
+  check(`${a.label}: set_name`, sn.text === `Name set: "${aName}"`, sn.text);
+
+  const ib = await b.initialize();
+  check(`${b.label}: initialize`, ib.serverInfo?.name === "agent-messenger", `serverInfo=${JSON.stringify(ib.serverInfo)}`);
+  const tlb = await b.request("tools/list");
+  check(`${b.label}: tools/list`, (tlb.tools ?? []).length === 5, `${(tlb.tools ?? []).length} tools`);
+  const snb = await b.tool("set_name", { name: bName });
+  check(`${b.label}: set_name`, snb.text === `Name set: "${bName}"`, snb.text);
+
+  const t1 = `hello ${bName} from ${aName} ${Date.now()}`;
+  const x1 = await exchange(a, b, bName, t1);
+  check(`${a.label} → ${b.label}: send_message`, !x1.sent.isError && x1.sent.text.startsWith(`Message sent to ${bName} (`), x1.sent.text);
+  check(`${b.label}: receives (check_messages / channel)`, x1.viaCheck || x1.viaChannel, x1.viaCheck ? "via check_messages" : x1.viaChannel ? `via channel push; check_messages said "${x1.checkText}"` : x1.checkText);
+
+  const t2 = `hello ${aName} from ${bName} ${Date.now()}`;
+  const x2 = await exchange(b, a, aName, t2);
+  check(`${b.label} → ${a.label}: send_message`, !x2.sent.isError && x2.sent.text.startsWith(`Message sent to ${aName} (`), x2.sent.text);
+  check(`${a.label}: receives (check_messages / channel)`, x2.viaCheck || x2.viaChannel, x2.viaCheck ? "via check_messages" : x2.viaChannel ? `via channel push; check_messages said "${x2.checkText}"` : x2.checkText);
+}
+
+function loaderPicked(mcp) {
+  const m = mcp.stderr.match(/ready: (@agent-hand\/messenger-client[^\s]*)@/);
+  return m ? m[1] : "(no install this run)";
+}
+
+function cacheEntries(pkgsDir) {
+  return existsSync(pkgsDir) ? readdirSync(pkgsDir).sort() : [];
+}
+
+// ---------------------------------------------------------------- session socket
+function startSessionSocket(path) {
+  const lines = [];
+  let ended = false;
+  const server = createNetServer((sock) => {
+    let buf = "";
+    sock.setEncoding("utf8");
+    sock.on("data", (d) => {
+      buf += d;
+      let i;
+      while ((i = buf.indexOf("\n")) !== -1) {
+        lines.push(buf.slice(0, i));
+        buf = buf.slice(i + 1);
+      }
+    });
+    sock.on("end", () => {
+      ended = true;
+      sock.end();
+    });
+  });
+  return new Promise((r) => server.listen(path, () => r({ server, lines, ended: () => ended })));
+}
+
+// ---------------------------------------------------------------- main
+async function main() {
+  log(`root=${ROOT} cli=${CLI} target=${TARGET} tmp=${TMP} broker=${brokerMode} url=${BROKER_URL}`);
+  const nativeDir = join(ROOT, "packages", `client-${TARGET}`);
+  const haveNative = existsSync(join(nativeDir, "bin", "messenger-client"));
+  if (doNative && !haveNative) log(`WARNING: ${nativeDir}/bin/messenger-client missing — native checks will fail`);
+
+  const registry = await startRegistry();
+  // same set and order as the release: protocol (broker depends on it) → broker → client → platform
+  const published = [
+    registry.publish(join(ROOT, "packages", "protocol")),
+    registry.publish(join(ROOT, "packages", "broker")),
+    registry.publish(join(ROOT, "packages", "client")),
+  ];
+  if (haveNative) published.push(registry.publish(nativeDir));
+  log(`mock registry ${registry.url}: ${published.map((p) => `${p.name}@${p.version} (${p.filename}, ${p.size} B)`).join("; ")}`);
+
+  // broker
+  let broker = null;
+  let health;
+  if (REMOTE_HOST) {
+    health = await waitHealth(BROKER_URL, 5);
+  } else if (brokerMode === "cli") {
+    broker = await startBrokerCli(registry.url, join(TMP, "pkgs-broker"), PORT, true);
+    health = broker.health;
+  } else {
+    broker = await startBrokerDirect();
+    health = broker.health;
+  }
+  if (!check("broker: /health", health && health.status === "ok", health ? `v${health.version} id=${health.id} port=${health.port}` : `no broker at ${BROKER_URL}${broker ? `\n${broker.stderr()}` : ""}`)) return;
+  if (broker && brokerMode === "cli") check("broker: installed through the cli", /ready: @agent-hand\/messenger-broker@/.test(broker.stderr()), broker.stderr().match(/ready: .*/)?.[0] ?? broker.stderr());
+
+  // token required
+  const unauth = await fetch(`${BROKER_URL}/list-peers`, { method: "POST", body: "{}" });
+  check("broker: POST without token → 401", unauth.status === 401, `status ${unauth.status}`);
+
+  const pkgs = join(TMP, "pkgs");
+
+  // 1. discover
+  if (!REMOTE_HOST) {
+    const d = await runCli(["discover"], cliEnv(registry.url, pkgs));
+    const okDiscover = d.status === 0 && /discovery: 1 broker\(s\) answered/.test(d.stdout) && d.stdout.includes(`resolved: ${BROKER_URL} (via discovery (`);
+    check("cli discover: finds the broker via UDP", okDiscover, d.stdout.trim().split("\n").join(" | ") || d.stderr);
+  } else {
+    const d = await runCli(["discover"], cliEnv(registry.url, pkgs));
+    check("cli discover: resolves via env", d.status === 0 && d.stdout.includes(`resolved: ${BROKER_URL} (via env)`), d.stdout.trim().split("\n").join(" | ") || d.stderr);
+  }
+
+  // 2. mcp native (auto: platform package preferred) + mcp node
+  const pkgsNative = join(TMP, "pkgs-native");
+  const a = doNative ? new Mcp("mcp native", cliEnv(registry.url, pkgsNative)) : null;
+  const b = doNode ? new Mcp("mcp node", cliEnv(registry.url, pkgs, { AGENT_MESSENGER_CLIENT: "node" })) : null;
+  const opened = [a, b].filter(Boolean);
+  try {
+    if (a && b) {
+      await mcpFlow(a, b, "e2e-native", "e2e-node");
+    } else if (a) {
+      const x = new Mcp("mcp node (peer)", cliEnv(registry.url, pkgs, { AGENT_MESSENGER_CLIENT: "node" }));
+      opened.push(x);
+      await mcpFlow(a, x, "e2e-native", "e2e-node");
+    } else if (b) {
+      const x = new Mcp("mcp node (peer)", cliEnv(registry.url, pkgs, { AGENT_MESSENGER_CLIENT: "node" }));
+      opened.push(x);
+      await mcpFlow(b, x, "e2e-node", "e2e-node2");
+    }
+    if (a) {
+      check("mcp native: loader picked the platform package", loaderPicked(a) === NATIVE_PKG, `${loaderPicked(a)}; cache: ${cacheEntries(pkgsNative).join(", ")}`);
+      check("mcp native: node client not installed for auto mode", !cacheEntries(pkgsNative).some((e) => e === "messenger-client@latest"), cacheEntries(pkgsNative).join(", "));
+    }
+    if (b) check("mcp node: loader picked the node client", loaderPicked(b) === "@agent-hand/messenger-client" || cacheEntries(pkgs).includes("messenger-client@latest"), `${loaderPicked(b)}; cache: ${cacheEntries(pkgs).join(", ")}`);
+
+    // 3. session socket delivery
+    const sockPath = join(TMP, "sess.sock");
+    const sess = await startSessionSocket(sockPath);
+    const c = new Mcp(a ? "mcp native (socket)" : "mcp node (socket)", cliEnv(registry.url, a ? pkgsNative : pkgs, {
+      CLAUDE_CODE_MESSAGING_SOCKET: sockPath,
+      CLAUDE_CODE_MESSAGING_TOKEN: "e2e-session-token",
+      ...(a ? {} : { AGENT_MESSENGER_CLIENT: "node" }),
+    }));
+    opened.push(c);
+    await c.initialize();
+    await c.tool("set_name", { name: "e2e-socket" });
+    const sender = b ?? a;
+    const t3 = `socket test ${Date.now()}`;
+    const s3 = await sender.tool("send_message", { to: "e2e-socket", message: t3 });
+    check(`${sender.label} → socket peer: send_message`, !s3.isError, s3.text);
+    for (let i = 0; i < 60 && !(sess.lines.length >= 2 && sess.ended()); i++) await sleep(100);
+    let auth = null;
+    let user = null;
+    try {
+      auth = JSON.parse(sess.lines[0] ?? "null");
+      user = JSON.parse(sess.lines[1] ?? "null");
+    } catch {
+      // reported below
+    }
+    check("session socket: auth line", auth && auth.type === "auth" && auth.token === "e2e-session-token", sess.lines[0] ?? "(none)");
+    check("session socket: user line", user && user.type === "user" && user.message?.role === "user" && user.message?.content?.includes(t3), (sess.lines[1] ?? "(none)").slice(0, 120));
+    check("session socket: half-close after the two lines", sess.ended() && sess.lines.length === 2, `lines=${sess.lines.length} ended=${sess.ended()}`);
+    check("session socket: client acknowledged", /Session socket delivery OK/.test(c.stderr), c.stderr.match(/Session socket delivery [^\n]*/)?.[0] ?? "(no log)");
+    sess.server.close();
+
+    // 4. peers / status / send
+    const env = cliEnv(registry.url, pkgs);
+    const peers = await runCli(["peers"], env);
+    const names = ["e2e-native", "e2e-node", "e2e-socket"].filter((n) => (a || n !== "e2e-native") && (b || n !== "e2e-node"));
+    check("cli peers", peers.status === 0 && names.every((n) => new RegExp(`^\\S+  ${n}  `, "m").test(peers.stdout)), peers.stdout.trim().split("\n").filter((l) => !l.startsWith("    ")).join(" | ") || peers.stderr);
+    const status = await runCli(["status"], env);
+    check("cli status", status.status === 0 && new RegExp(`^Broker: ok v${health.version} id=${health.id} \\(${opened.length} peer\\(s\\)\\) at ${BROKER_URL.replace(/[.]/g, "\\.")} \\(via `, "m").test(status.stdout), status.stdout.split("\n")[0] || status.stderr);
+    const target = b ?? a;
+    const targetName = b ? "e2e-node" : "e2e-native";
+    const t4 = `hello from cli ${Date.now()}`;
+    const send = await runCli(["send", targetName, t4], env);
+    check("cli send", send.status === 0 && send.stdout.startsWith(`Message sent to ${targetName} (`), send.stdout.trim() || send.stderr);
+    const got = await target.tool("check_messages");
+    const gotViaChannel = got.text.includes(t4) ? false : Boolean(await target.waitNotification((n) => n.method === "notifications/claude/channel" && n.params?.content === t4));
+    check(`cli send: ${target.label} receives`, got.text.includes(t4) || gotViaChannel, got.text.includes(t4) ? "via check_messages" : gotViaChannel ? "via channel push" : got.text);
+    const bad = await runCli(["send", "nobody-here", "x"], env);
+    check("cli send: unknown peer fails", bad.status === 1 && /^Failed: /.test(bad.stderr), bad.stderr.trim());
+
+    // 5. node fallback: platform package missing from the registry
+    if (haveNative) {
+      registry.unpublish(NATIVE_PKG);
+      const pkgsFb = join(TMP, "pkgs-fallback");
+      const f = new Mcp("mcp auto (no platform package)", cliEnv(registry.url, pkgsFb));
+      opened.push(f);
+      const fi = await f.initialize();
+      check("fallback: mcp still answers initialize", fi.serverInfo?.name === "agent-messenger");
+      check("fallback: loader reported the platform package missing", new RegExp(`${NATIVE_PKG.replace(/[/-]/g, "\\$&")} not available`).test(f.stderr), f.stderr.match(/not available[^\n]*/)?.[0] ?? f.stderr);
+      check("fallback: loader ran the node client", loaderPicked(f) === "@agent-hand/messenger-client", `${loaderPicked(f)}; cache: ${cacheEntries(pkgsFb).join(", ")}`);
+      const forced = await runCli(["mcp"], cliEnv(registry.url, join(TMP, "pkgs-forced"), { AGENT_MESSENGER_CLIENT: "native" }));
+      check("fallback: AGENT_MESSENGER_CLIENT=native exits 1 when missing", forced.status === 1 && /cannot start|is not available/.test(forced.stderr), forced.stderr.trim().split("\n").pop());
+      registry.publish(nativeDir);
+    }
+  } finally {
+    for (const m of opened) {
+      const code = await m.close();
+      check(`${m.label}: stdin close → unregister → exit 0`, code === 0 && /Unregistered from broker/.test(m.stderr), `exit=${code}`);
+    }
+  }
+
+  // 6. `agent-messenger broker` through the mock registry (extra port; skipped when it already is the broker)
+  if (brokerMode !== "cli" && !REMOTE_HOST) {
+    const bc = await startBrokerCli(registry.url, join(TMP, "pkgs-broker"), PORT + 2, false);
+    check("cli broker: installed from the mock registry and serves /health", bc.health && bc.health.status === "ok" && /ready: @agent-hand\/messenger-broker@/.test(bc.stderr()), bc.health ? `v${bc.health.version} ${bc.stderr().match(/ready: [^\n]*/)?.[0]}` : bc.stderr());
+    const st = await runCli(["status"], cliEnv(registry.url, pkgs, { AGENT_MESSENGER_HOST: "127.0.0.1", AGENT_MESSENGER_PORT: String(PORT + 2) }));
+    check("cli broker: cli status against it", st.status === 0 && st.stdout.startsWith("Broker: ok v"), st.stdout.split("\n")[0] || st.stderr);
+    bc.proc.kill("SIGTERM");
+    const code = await bc.exited;
+    check("cli broker: SIGTERM → exit 0", code === 0, `exit=${code}`);
+  }
+
+  if (broker) {
+    broker.proc.kill("SIGTERM");
+    const code = await broker.exited;
+    check("broker: SIGTERM → exit 0", code === 0, `exit=${code}`);
+  }
+  await registry.close();
+}
+
+main()
+  .catch((e) => {
+    fail("driver", e instanceof Error ? e.stack ?? e.message : String(e));
+  })
+  .finally(async () => {
+    for (const p of children) {
+      try {
+        p.kill("SIGKILL");
+      } catch {
+        // gone
+      }
+    }
+    await sleep(200);
+    if (!process.env.E2E_KEEP) rmSync(TMP, { recursive: true, force: true });
+    const passed = results.filter((r) => r.ok).length;
+    console.log(`\n${failed === 0 ? "E2E OK" : "E2E FAILED"}: ${passed} passed, ${failed} failed (${TARGET}, broker=${REMOTE_HOST ? "remote" : brokerMode})`);
+    process.exit(failed === 0 ? 0 : 1);
+  });
