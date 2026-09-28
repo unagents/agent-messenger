@@ -38,17 +38,17 @@ node scripts/e2e-mcp.mjs        # 疑似 registry で 6 パッケージの取得
 
 ### 1〜4: Gitea Packages（202 の checkout から）
 
-Mac の `release/0.5.0/` の 5 本を 202 の checkout（`/home/vagrant/work/agent-messenger`）へ転送し、`env npm_config_@agent-hand:registry=http://192.168.1.202/gitea/api/packages/agent-hand/npm/ npm publish <tgz>` を 1 本ずつ実行する。**`~/.npmrc` の `@agent-hand:registry=http://192.168.1.202/npm/`（scope 設定）が tarball の `publishConfig.registry` と `--registry` のどちらよりも優先される**（0.5.0 リリース時の実測。`npm publish <tgz>` だけだと Verdaccio に入る）ため、`env npm_config_@agent-hand:registry=<Gitea Packages>` で scope 設定を上書きする。202 の `~/.npmrc` に Gitea Packages の認証行があること（無ければ `node deploy/npmrc-gitea-auth.js`）。
+Mac の `release/0.5.0/` の 5 本を 202 の checkout（`/home/vagrant/work/mcp-tools/agent-messenger`）へ転送し、`env npm_config_@agent-hand:registry=http://192.168.1.202/gitea/api/packages/agent-hand/npm/ npm publish <tgz>` を 1 本ずつ実行する。**`~/.npmrc` の `@agent-hand:registry=http://192.168.1.202/npm/`（scope 設定）が tarball の `publishConfig.registry` と `--registry` のどちらよりも優先される**（0.5.0 リリース時の実測。`npm publish <tgz>` だけだと Verdaccio に入る）ため、`env npm_config_@agent-hand:registry=<Gitea Packages>` で scope 設定を上書きする。202 の `~/.npmrc` に Gitea Packages の認証行があること（無ければ `node deploy/npmrc-gitea-auth.js`）。
 
 ```bash
 # Mac
-scp release/0.5.0/agent-hand-messenger-{protocol,broker,client,client-darwin-arm64,client-linux-x64}-0.5.0.tgz vagrant@192.168.1.202:/home/vagrant/work/agent-messenger/release/0.5.0/
+scp release/0.5.0/agent-hand-messenger-{protocol,broker,client,client-darwin-arm64,client-linux-x64}-0.5.0.tgz vagrant@192.168.1.202:/home/vagrant/work/mcp-tools/agent-messenger/release/0.5.0/
 # 202（単独コマンドで 1 本ずつ。`cd &&` 連結は分類器に止まる）
-env npm_config_@agent-hand:registry=http://192.168.1.202/gitea/api/packages/agent-hand/npm/ npm publish /home/vagrant/work/agent-messenger/release/0.5.0/agent-hand-messenger-protocol-0.5.0.tgz
-env npm_config_@agent-hand:registry=http://192.168.1.202/gitea/api/packages/agent-hand/npm/ npm publish /home/vagrant/work/agent-messenger/release/0.5.0/agent-hand-messenger-broker-0.5.0.tgz
-env npm_config_@agent-hand:registry=http://192.168.1.202/gitea/api/packages/agent-hand/npm/ npm publish /home/vagrant/work/agent-messenger/release/0.5.0/agent-hand-messenger-client-0.5.0.tgz
-env npm_config_@agent-hand:registry=http://192.168.1.202/gitea/api/packages/agent-hand/npm/ npm publish /home/vagrant/work/agent-messenger/release/0.5.0/agent-hand-messenger-client-darwin-arm64-0.5.0.tgz
-env npm_config_@agent-hand:registry=http://192.168.1.202/gitea/api/packages/agent-hand/npm/ npm publish /home/vagrant/work/agent-messenger/release/0.5.0/agent-hand-messenger-client-linux-x64-0.5.0.tgz
+env npm_config_@agent-hand:registry=http://192.168.1.202/gitea/api/packages/agent-hand/npm/ npm publish /home/vagrant/work/mcp-tools/agent-messenger/release/0.5.0/agent-hand-messenger-protocol-0.5.0.tgz
+env npm_config_@agent-hand:registry=http://192.168.1.202/gitea/api/packages/agent-hand/npm/ npm publish /home/vagrant/work/mcp-tools/agent-messenger/release/0.5.0/agent-hand-messenger-broker-0.5.0.tgz
+env npm_config_@agent-hand:registry=http://192.168.1.202/gitea/api/packages/agent-hand/npm/ npm publish /home/vagrant/work/mcp-tools/agent-messenger/release/0.5.0/agent-hand-messenger-client-0.5.0.tgz
+env npm_config_@agent-hand:registry=http://192.168.1.202/gitea/api/packages/agent-hand/npm/ npm publish /home/vagrant/work/mcp-tools/agent-messenger/release/0.5.0/agent-hand-messenger-client-darwin-arm64-0.5.0.tgz
+env npm_config_@agent-hand:registry=http://192.168.1.202/gitea/api/packages/agent-hand/npm/ npm publish /home/vagrant/work/mcp-tools/agent-messenger/release/0.5.0/agent-hand-messenger-client-linux-x64-0.5.0.tgz
 ```
 
 確認（202）: `env npm_config_@agent-hand:registry=http://192.168.1.202/gitea/api/packages/agent-hand/npm/ npm view @agent-hand/messenger-broker version` が `0.5.0`。5 本とも。`--registry` 形は scope 設定に負けて Verdaccio を見るので使わない。
@@ -60,7 +60,7 @@ broker の unscoped 依存（`h3` / `listhen` / `consola` / `defu`）は各ホ�
 ### 5: Verdaccio（CLI）
 
 ```bash
-npm publish /home/vagrant/work/agent-messenger/release/0.5.0/agent-hand-messenger-0.5.0.tgz
+npm publish /home/vagrant/work/mcp-tools/agent-messenger/release/0.5.0/agent-hand-messenger-0.5.0.tgz
 ```
 
 （`publishConfig.registry` = `http://192.168.1.202/npm/`）。確認: `npm view @agent-hand/messenger version --registry http://192.168.1.202/npm/` → `0.5.0`。
