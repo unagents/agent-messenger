@@ -87,11 +87,26 @@ npx -y @agent-hand/messenger peers
 npx -y @agent-hand/messenger send master-cap "作業完了"
 ```
 
+## broker の見つけ方（mcp / CLI）
+
+上から順に試し、最初に決まった所を使う。
+
+1. `AGENT_MESSENGER_HOST`（+ `AGENT_MESSENGER_PORT`）。`auto` または未設定なら次へ
+2. `~/.agent-messenger/config.json` の `{"brokers": ["http://192.168.1.202:7901", ...]}`。先頭から `/health` が返る最初の 1 つ
+3. LAN 自動発見: UDP ブロードキャスト（port 7902）に対し、稼働中の broker が `{id, port, version}` で応答。最初に応じた broker
+4. `127.0.0.1:7901`。mcp はここで broker を自動起動する
+
+`agent-messenger discover` で、設定ファイルの内容・応答した broker・最終的に選んだ URL を表示する。broker 側は起動時に UDP 7902 で応答を始める（`AGENT_MESSENGER_DISCOVERY=off` で無効化）。
+
 ## 環境変数
 
 | 変数 | 既定 | 用途 |
 |---|---|---|
-| `AGENT_MESSENGER_HOST` | `127.0.0.1` | broker のホスト。`127.0.0.1` のときは mcp 起動時に broker を自動起動する |
+| `AGENT_MESSENGER_HOST` | なし（`auto`） | broker のホスト。`127.0.0.1` のときは mcp 起動時に broker を自動起動する。未設定なら上記の解決順 |
+| `AGENT_MESSENGER_CONFIG` | `~/.agent-messenger/config.json` | broker 一覧の設定ファイル |
+| `AGENT_MESSENGER_BROKER_ID` | ホスト名 | broker の識別子（`/health` と発見応答に載る） |
+| `AGENT_MESSENGER_DISCOVERY` | `on` | `off` で UDP 発見を無効化 |
+| `AGENT_MESSENGER_DISCOVERY_PORT` / `_ADDR` / `_TIMEOUT_MS` | `7902` / なし / `1000` | 発見用 UDP ポート・探索先固定・応答待ち |
 | `AGENT_MESSENGER_PORT` | `7901` | broker のポート（claude-peers の 7899 と衝突させないため別番号） |
 | `AGENT_MESSENGER_BIND` | `0.0.0.0` | broker の bind アドレス |
 | `AGENT_MESSENGER_TOKEN` | なし | Bearer トークン。broker と全クライアントで同じ値を設定 |

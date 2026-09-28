@@ -1,6 +1,7 @@
 #!/usr/bin/env node
-import { BROKER_URL } from "../src/config.js";
-import { brokerFetch, brokerHealth } from "../src/client.js";
+import { brokerFetch, brokerHealth, getBrokerUrl } from "../src/client.js";
+import { resolveBroker, discoverBrokers, readConfigBrokers } from "../src/resolve.js";
+import { CONFIG_FILE } from "../src/config.js";
 
 const [cmd, ...rest] = process.argv.slice(2);
 
@@ -14,14 +15,19 @@ Usage:
   agent-messenger peers               list peers
   agent-messenger send <name|id> <message...>
                                       send a message into a session (from "cli")
+  agent-messenger discover            show how the broker is resolved and which brokers answer on the LAN
+
+Broker resolution (mcp / status / peers / send), first hit wins:
+  1. AGENT_MESSENGER_HOST (+AGENT_MESSENGER_PORT)   ("auto" or unset = continue)
+  2. ${CONFIG_FILE}  {"brokers": ["http://host:7901", ...]}
+  3. LAN discovery (UDP broadcast, port AGENT_MESSENGER_DISCOVERY_PORT=7902)
+  4. 127.0.0.1:7901 (mcp auto-launches a local broker)
 
 Environment:
-  AGENT_MESSENGER_HOST   broker host (default 127.0.0.1)
-  AGENT_MESSENGER_PORT   broker port (default 7901)
-  AGENT_MESSENGER_BIND   broker bind address (default 0.0.0.0)
-  AGENT_MESSENGER_TOKEN  bearer token
-  AGENT_MESSENGER_NAME   peer name for this session
-  AGENT_MESSENGER_STATE  broker state file (default ~/.agent-messenger/broker.json)`);
+  AGENT_MESSENGER_HOST / PORT / BIND / TOKEN / NAME / STATE / CONFIG
+  AGENT_MESSENGER_BROKER_ID            broker id (default hostname)
+  AGENT_MESSENGER_DISCOVERY=off        disable discovery (broker responder + client probe)
+  AGENT_MESSENGER_DISCOVERY_PORT/ADDR/TIMEOUT_MS`);
 }
 
 function printPeers(peers) {
@@ -36,6 +42,8 @@ function printPeers(peers) {
   }
 }
 
+const log = (m) => console.error(`[agent-messenger] ${m}`);
+
 switch (cmd) {
   case "mcp": {
     const { startMcpServer } = await import("../src/server.js");
@@ -48,16 +56,18 @@ switch (cmd) {
     break;
   }
   case "status": {
+    const r = await resolveBroker(log);
     const h = await brokerHealth();
     if (!h) {
-      console.log(`Broker at ${BROKER_URL} is not running.`);
+      console.log(`Broker at ${getBrokerUrl()} (via ${r.source}) is not running.`);
       process.exit(1);
     }
-    console.log(`Broker: ${h.status} v${h.version} (${h.peers} peer(s)) at ${BROKER_URL}`);
+    console.log(`Broker: ${h.status} v${h.version} id=${h.id ?? "-"} (${h.peers} peer(s)) at ${getBrokerUrl()} (via ${r.source})`);
     if (h.peers > 0) printPeers(await brokerFetch("/list-peers", { scope: "all", cwd: "/", git_root: null }));
     break;
   }
   case "peers": {
+    await resolveBroker(log);
     printPeers(await brokerFetch("/list-peers", { scope: "all", cwd: "/", git_root: null }));
     break;
   }
@@ -68,12 +78,23 @@ switch (cmd) {
       console.error("Usage: agent-messenger send <name|id> <message...>");
       process.exit(1);
     }
+    await resolveBroker(log);
     const r = await brokerFetch("/send-message", { from_id: "cli", from_name: "cli", to, text: message });
     if (!r.ok) {
       console.error(`Failed: ${r.error}`);
       process.exit(1);
     }
     console.log(`Message sent to ${r.to_name ? `${r.to_name} (${r.to_id})` : r.to_id}`);
+    break;
+  }
+  case "discover": {
+    const cfg = readConfigBrokers();
+    console.log(`config file: ${CONFIG_FILE} → ${cfg.length ? cfg.join(", ") : "(none)"}`);
+    const found = await discoverBrokers();
+    console.log(`discovery: ${found.length} broker(s) answered`);
+    for (const b of found) console.log(`  ${b.id}  ${b.url}  v${b.version}`);
+    const r = await resolveBroker(log);
+    console.log(`resolved: ${r.url} (via ${r.source})`);
     break;
   }
   default:

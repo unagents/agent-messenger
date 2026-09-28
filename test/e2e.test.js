@@ -27,6 +27,8 @@ const env = {
   AGENT_MESSENGER_BIND: "127.0.0.1",
   AGENT_MESSENGER_TOKEN: TOKEN,
   AGENT_MESSENGER_STATE: join(dir, "broker.json"),
+  AGENT_MESSENGER_DISCOVERY: "off",
+  AGENT_MESSENGER_CONFIG: join(dir, "no-config.json"),
 };
 const URL_ = `http://127.0.0.1:${PORT}`;
 

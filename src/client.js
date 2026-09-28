@@ -1,10 +1,22 @@
-import { BROKER_URL, TOKEN } from "./config.js";
+import { TOKEN } from "./config.js";
+
+let brokerUrl = "";
+
+/** Set once the broker has been resolved (see resolve.js). */
+export function setBrokerUrl(url) {
+  brokerUrl = url.replace(/\/$/, "");
+}
+
+export function getBrokerUrl() {
+  return brokerUrl;
+}
 
 /**
  * POST JSON to the broker. Throws on non-2xx.
  */
 export async function brokerFetch(path, body, opts = {}) {
-  const url = opts.url ?? BROKER_URL;
+  const url = opts.url ?? brokerUrl;
+  if (!url) throw new Error("broker not resolved");
   const token = opts.token ?? TOKEN;
   const headers = { "Content-Type": "application/json" };
   if (token) headers["Authorization"] = `Bearer ${token}`;
@@ -21,9 +33,10 @@ export async function brokerFetch(path, body, opts = {}) {
   return res.json();
 }
 
-export async function brokerHealth(url = BROKER_URL) {
+export async function brokerHealth(url = brokerUrl, timeoutMs = 2000) {
+  if (!url) return null;
   try {
-    const res = await fetch(`${url}/health`, { signal: AbortSignal.timeout(2000) });
+    const res = await fetch(`${url}/health`, { signal: AbortSignal.timeout(timeoutMs) });
     if (!res.ok) return null;
     return await res.json();
   } catch {

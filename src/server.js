@@ -7,15 +7,9 @@ import { mkdirSync, openSync } from "node:fs";
 import { connect as netConnect } from "node:net";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
-import {
-  BROKER_URL,
-  IS_LOCAL_BROKER,
-  NAME,
-  STATE_DIR,
-  HEARTBEAT_INTERVAL_MS,
-  POLL_INTERVAL_MS,
-} from "./config.js";
-import { brokerFetch, brokerHealth } from "./client.js";
+import { NAME, STATE_DIR, HEARTBEAT_INTERVAL_MS, POLL_INTERVAL_MS } from "./config.js";
+import { brokerFetch, brokerHealth, getBrokerUrl } from "./client.js";
+import { resolveBroker } from "./resolve.js";
 
 const require = createRequire(import.meta.url);
 const { version: VERSION } = require("../package.json");
@@ -64,14 +58,14 @@ function log(msg) {
   console.error(`[agent-messenger] ${msg}`);
 }
 
-async function ensureBroker() {
+async function ensureBroker(resolved) {
   if (await brokerHealth()) {
     log("Broker already running");
     return;
   }
-  if (!IS_LOCAL_BROKER) {
+  if (!resolved.isLocal) {
     throw new Error(
-      `Remote broker at ${BROKER_URL} is not reachable. Start it on the broker host: agent-messenger broker`
+      `Remote broker at ${getBrokerUrl()} is not reachable. Start it on the broker host: agent-messenger broker`
     );
   }
   log("Starting local broker daemon...");
@@ -80,7 +74,7 @@ async function ensureBroker() {
   const proc = spawn(process.execPath, [BIN, "broker"], {
     stdio: ["ignore", out, out],
     detached: true,
-    env: process.env,
+    env: { ...process.env, AGENT_MESSENGER_PORT: String(new URL(getBrokerUrl()).port) },
   });
   proc.unref();
   for (let i = 0; i < 30; i++) {
@@ -372,11 +366,12 @@ async function pollLoop() {
 // --- Startup ---
 
 export async function startMcpServer() {
-  await ensureBroker();
+  const resolved = await resolveBroker(log);
+  await ensureBroker(resolved);
 
   myGitRoot = git(["rev-parse", "--show-toplevel"], myCwd);
   const tty = getTty();
-  log(`v${VERSION} host=${MY_HOSTNAME} broker=${BROKER_URL} (${IS_LOCAL_BROKER ? "local" : "remote"})`);
+  log(`v${VERSION} host=${MY_HOSTNAME} broker=${getBrokerUrl()} (${resolved.isLocal ? "local" : "remote"}, via ${resolved.source})`);
   log(`cwd=${myCwd} git_root=${myGitRoot ?? "(none)"} tty=${tty ?? "(unknown)"} name=${myName || "(unset)"}`);
   log(`delivery=${DELIVERY} session_socket=${SESSION_SOCKET || "(none)"}`);
 

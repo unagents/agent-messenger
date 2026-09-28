@@ -2,7 +2,18 @@ import { createServer } from "node:http";
 import { mkdirSync, readFileSync, writeFileSync, renameSync } from "node:fs";
 import { dirname } from "node:path";
 import { createRequire } from "node:module";
-import { PORT, BIND, TOKEN, STATE_FILE, HEARTBEAT_TIMEOUT_MS } from "./config.js";
+import { createSocket } from "node:dgram";
+import {
+  PORT,
+  BIND,
+  TOKEN,
+  STATE_FILE,
+  HEARTBEAT_TIMEOUT_MS,
+  BROKER_ID,
+  DISCOVERY_ENABLED,
+  DISCOVERY_PORT,
+  DISCOVERY_ADDR,
+} from "./config.js";
 
 const require = createRequire(import.meta.url);
 const { version: VERSION } = require("../package.json");
@@ -268,7 +279,7 @@ export function startBroker() {
     if (req.method === "GET" && path === "/health") {
       const cutoff = new Date(Date.now() - HEARTBEAT_TIMEOUT_MS).toISOString();
       const alive = [...peers.values()].filter((p) => isAlive(p, cutoff)).length;
-      return sendJson(res, 200, { status: "ok", version: VERSION, peers: alive });
+      return sendJson(res, 200, { status: "ok", version: VERSION, id: BROKER_ID, port: PORT, peers: alive });
     }
     if (req.method !== "POST") {
       res.writeHead(200, { "Content-Type": "text/plain" });
@@ -287,13 +298,43 @@ export function startBroker() {
     }
   });
 
+  // UDP discovery responder: answer {"agent-messenger":"probe"} with our id/port so
+  // clients on the LAN can find us without any configuration.
+  let disco = null;
+  if (DISCOVERY_ENABLED) {
+    disco = createSocket({ type: "udp4", reuseAddr: true });
+    disco.on("error", (e) => log(`discovery responder error: ${e.message}`));
+    disco.on("message", (msg, rinfo) => {
+      try {
+        if (JSON.parse(msg.toString())["agent-messenger"] !== "probe") return;
+      } catch {
+        return;
+      }
+      const reply = Buffer.from(
+        JSON.stringify({ "agent-messenger": "broker", id: BROKER_ID, port: PORT, version: VERSION })
+      );
+      disco.send(reply, rinfo.port, rinfo.address, () => {});
+    });
+    // bind to the discovery address when one is pinned (tests use 127.0.0.1), else all interfaces
+    const bindAddr = DISCOVERY_ADDR && !DISCOVERY_ADDR.endsWith(".255") ? DISCOVERY_ADDR : "0.0.0.0";
+    disco.bind(DISCOVERY_PORT, bindAddr, () => {
+      try {
+        disco.setBroadcast(true);
+      } catch {
+        // not needed for replies
+      }
+      log(`discovery responder on udp ${bindAddr}:${DISCOVERY_PORT} (id: ${BROKER_ID})`);
+    });
+  }
+
   server.listen(PORT, BIND, () => {
-    log(`v${VERSION} listening on ${BIND}:${PORT} (state: ${STATE_FILE})`);
+    log(`v${VERSION} id=${BROKER_ID} listening on ${BIND}:${PORT} (state: ${STATE_FILE})`);
     log(TOKEN ? "token auth enabled" : "WARNING: no AGENT_MESSENGER_TOKEN set — broker is open");
   });
 
   const shutdown = () => {
     log("shutting down");
+    if (disco) disco.close();
     server.close();
     process.exit(0);
   };
