@@ -4,6 +4,11 @@
   "description": "agent-messenger core: broker + stdio MCP server + CLI for Claude Code session messaging. Launched via the @agent-hand/messenger loader.",
   "type": "module",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "http://192.168.1.202/gitea/agent-hand/messenger.git"
+  },
+  "homepage": "http://192.168.1.202/gitea/agent-hand/messenger",
   "bin": {
     "agent-messenger": "bin/agent-messenger.js"
   },
