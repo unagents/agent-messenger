@@ -1,11 +1,11 @@
 /**
  * Broker HTTP API — request / response JSON shapes.
  *
- * Transcribed from `src/broker.js` (handlers) and `src/server.js` /
- * `bin/agent-messenger.js` (callers). Field optionality follows the broker:
+ * Transcribed from `legacy/src/broker.js` (handlers) and `legacy/src/server.js` /
+ * `legacy/bin/agent-messenger.js` (callers). Field optionality follows the broker:
  * a field the broker defaults with `??` is optional here.
  *
- * Transport rules (from `src/broker.js` `startBroker`):
+ * Transport rules (from `legacy/src/broker.js` `startBroker`):
  * - `GET /health` is the only GET route.
  * - Every other route is `POST` with a JSON body; empty body is treated as `{}`.
  * - When the broker has a token, each POST must send `Authorization: Bearer <token>`,
@@ -193,7 +193,7 @@ export type UnregisterResponse = { ok: true };
 /** The only GET route. */
 export const HEALTH_ROUTE = "/health" as const;
 
-/** POST routes, in the order of `ROUTES` in `src/broker.js`. */
+/** POST routes, in the order of `ROUTES` in `legacy/src/broker.js`. */
 export const BROKER_POST_ROUTES = [
   "/register",
   "/heartbeat",

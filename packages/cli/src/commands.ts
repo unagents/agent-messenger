@@ -1,5 +1,5 @@
 /**
- * Sub-command bodies. Output text is the same as `bin/agent-messenger.js`.
+ * Sub-command bodies. Output text is the same as `legacy/bin/agent-messenger.js`.
  */
 import type { Peer } from "@agent-hand/messenger-protocol";
 import type { BrokerClientLike, ClientModule } from "./client-module.js";

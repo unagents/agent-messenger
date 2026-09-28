@@ -55,7 +55,7 @@ describe("mcp stdio", () => {
       capabilities: {},
       clientInfo: { name: "test", version: "0" },
     });
-    // measured from the current src/server.js (@modelcontextprotocol/sdk 1.30.1)
+    // measured from the legacy/src/server.js (@modelcontextprotocol/sdk 1.30.1)
     expect(init).toEqual({
       protocolVersion: "2025-06-18",
       capabilities: { experimental: { "claude/channel": {} }, tools: {} },

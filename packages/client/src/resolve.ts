@@ -26,7 +26,7 @@ export interface DiscoveredBroker {
 export type Logger = (msg: string) => void;
 
 /**
- * Find the broker (same order as the current `src/resolve.js`) and set the client URL.
+ * Find the broker (same order as the current `legacy/src/resolve.js`) and set the client URL.
  *
  *   1. env      AGENT_MESSENGER_HOST (+PORT)
  *   2. config   ~/.agent-messenger/config.json {"brokers": [...]}, first reachable

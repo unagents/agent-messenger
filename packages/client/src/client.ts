@@ -17,7 +17,7 @@ import { VERSION } from "./version.js";
  * Registers with the broker, exposes tools, delivers inbound messages to the
  * session (inbox socket → channel notification → local buffer for check_messages).
  *
- * Behaviour mirrors the current `src/server.js`.
+ * Behaviour mirrors the current `legacy/src/server.js`.
  */
 
 export interface StartClientOptions {

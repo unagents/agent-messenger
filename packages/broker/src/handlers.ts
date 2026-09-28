@@ -29,7 +29,7 @@ import { HEARTBEAT_TIMEOUT_MS } from "@agent-hand/messenger-protocol";
 import { log } from "./log.js";
 import type { BrokerState } from "./state.js";
 
-/** Route handlers over a `BrokerState`. Logic is transcribed 1:1 from `src/broker.js`. */
+/** Route handlers over a `BrokerState`. Logic is transcribed 1:1 from `legacy/src/broker.js`. */
 export class BrokerHandlers {
   constructor(private readonly state: BrokerState) {}
 

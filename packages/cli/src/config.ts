@@ -15,7 +15,7 @@ export const DEFAULT_TTL_HOURS = 24;
 export const DEFAULT_PKGS_DIR = join(homedir(), ".agent-messenger", "pkgs");
 
 /**
- * Environment variable names. The `loader/loader.js` names (`AGENT_MESSENGER_CORE_*`)
+ * Environment variable names. The `legacy/loader/loader.js` names (`AGENT_MESSENGER_CORE_*`)
  * are replaced; only the refresh flag still accepts its old name.
  */
 export const ENV = {

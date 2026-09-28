@@ -6,7 +6,7 @@ import { DEFAULT_BIND, DEFAULT_DISCOVERY_PORT, DEFAULT_HTTP_PORT, ENV } from "@a
 /**
  * Broker configuration. Every field can be given to `startBroker(options)`;
  * anything left out falls back to the environment (`AGENT_MESSENGER_*`,
- * same names and defaults as the JavaScript `src/config.js`).
+ * same names and defaults as the JavaScript `legacy/src/config.js`).
  */
 export interface BrokerOptions {
   /** HTTP listen port (`AGENT_MESSENGER_PORT`, default 7901). `0` = random free port. */
@@ -35,7 +35,7 @@ export const STATE_DIR = join(homedir(), ".agent-messenger");
 /** Default state file path (`~/.agent-messenger/broker.json`). Not exported by protocol. */
 export const DEFAULT_STATE_FILE = join(STATE_DIR, "broker.json");
 
-/** Read the broker-side environment exactly like `src/config.js`. */
+/** Read the broker-side environment exactly like `legacy/src/config.js`. */
 export function configFromEnv(env: NodeJS.ProcessEnv = process.env): BrokerConfig {
   return {
     port: parseInt(env[ENV.PORT] ?? String(DEFAULT_HTTP_PORT), 10),

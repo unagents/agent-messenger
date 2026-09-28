@@ -1,7 +1,7 @@
 /**
  * Claude Code session inbox socket — line shapes.
  *
- * Transcribed from `src/server.js` (`postToSession`). The client connects to
+ * Transcribed from `legacy/src/server.js` (`postToSession`). The client connects to
  * the unix socket named by `CLAUDE_CODE_MESSAGING_SOCKET`, writes one JSON
  * object per line (`\n` terminated), then half-closes:
  *

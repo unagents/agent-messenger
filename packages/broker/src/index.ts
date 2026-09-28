@@ -17,7 +17,7 @@ export type { BrokerStateFile } from "./state.js";
 /** Package version, reported by `/health` and discovery replies (inlined at build time). */
 export const VERSION: string = pkg.version;
 
-/** Interval of the stale-peer sweep (`src/broker.js`: `setInterval(cleanStalePeers, 30_000)`). */
+/** Interval of the stale-peer sweep (`legacy/src/broker.js`: `setInterval(cleanStalePeers, 30_000)`). */
 const CLEAN_INTERVAL_MS = 30_000;
 
 export interface BrokerHandle {

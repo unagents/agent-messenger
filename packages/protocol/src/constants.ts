@@ -2,7 +2,7 @@
  * Protocol constants shared by broker, client and CLI.
  *
  * Values are transcribed from the current JavaScript implementation
- * (`src/config.js`, `src/broker.js`, `src/server.js`). Do not change them here
+ * (`legacy/src/config.js`, `legacy/src/broker.js`, `legacy/src/server.js`). Do not change them here
  * without changing the implementation on both ends.
  */
 
@@ -31,8 +31,8 @@ export const POLL_INTERVAL_MS = 1000;
 export const LOCAL_HOSTS = ["127.0.0.1", "localhost", "::1"] as const;
 
 /**
- * Environment variable names. Source of truth: `src/config.js`
- * (`DELIVERY` lives in `src/server.js`).
+ * Environment variable names. Source of truth: `legacy/src/config.js`
+ * (`DELIVERY` lives in `legacy/src/server.js`).
  */
 export const ENV = {
   /** Explicit broker host. `"auto"` or unset = resolve by config / discovery / local. */

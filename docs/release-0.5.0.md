@@ -17,7 +17,7 @@ Gitea Packages: `http://192.168.1.202/gitea/api/packages/agent-hand/npm/`、Verd
 
 ```bash
 npm ci && npm run build && npm run typecheck && npm test
-PERRY_HOME=/Users/koube/work/mcp-tools/agent-messenger/spike-perry node scripts/build-native.mjs   # darwin-arm64
+PERRY_HOME=/Users/koube/work/mcp-tools/agent-messenger/toolchain/perry node scripts/build-native.mjs   # darwin-arm64
 # linux-x64 は 204 で同じスクリプトを実行し、packages/client-linux-x64/bin/messenger-client を回収する
 mkdir -p release/0.5.0
 for p in protocol broker client client-darwin-arm64 client-linux-x64 cli; do npm pack --pack-destination release/0.5.0 ./packages/$p; done
@@ -69,7 +69,7 @@ npm publish /home/vagrant/work/agent-messenger/release/0.5.0/agent-hand-messenge
 
 | 組み合わせ | 状態 | 根拠 |
 |---|---|---|
-| 新 client 0.5.0 ↔ 旧 broker（core 0.4.0） | 動く | client の vitest（`packages/client/test/`）は broker に旧 JS 実装 `bin/agent-messenger.js broker` を使っており 15 件通過（報告書 03 / 05） |
+| 新 client 0.5.0 ↔ 旧 broker（core 0.4.0） | 動く | client の vitest（`packages/client/test/`）は broker に旧 JS 実装 `legacy/bin/agent-messenger.js broker` を使っており 15 件通過（報告書 03 / 05） |
 | 旧 client / 旧 CLI（core 0.4.0） ↔ 新 broker 0.5.0 | 動く | broker の vitest に旧 CLI `peers` の互換テストあり（報告書 02）。HTTP API・UDP 発見応答・state file（`broker.json`）の形は同一 |
 | 新 broker が旧 broker の `~/.agent-messenger/broker.json` を読む | 可 | 報告書 02 の state file テスト（indent 1、同キー） |
 

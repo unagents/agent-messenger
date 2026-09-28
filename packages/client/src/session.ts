@@ -4,7 +4,7 @@ import type { SessionAuthLine, SessionUserLine } from "@agent-hand/messenger-pro
 /**
  * Deliver a message into the Claude Code session through its inbox socket
  * (`CLAUDE_CODE_MESSAGING_SOCKET`): auth line (when a token is set), user line,
- * then half-close. Same as `postToSession` in the current `src/server.js`.
+ * then half-close. Same as `postToSession` in the current `legacy/src/server.js`.
  */
 export function postToSession(socketPath: string, token: string, text: string): Promise<void> {
   return new Promise<void>((resolve, reject) => {

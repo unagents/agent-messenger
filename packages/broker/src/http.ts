@@ -23,7 +23,7 @@ export interface HttpAppOptions {
 }
 
 /**
- * Build the h3 app. Transport rules are those of `src/broker.js`:
+ * Build the h3 app. Transport rules are those of `legacy/src/broker.js`:
  *
  * - `GET /health` → `{status, version, id, port, peers}`
  * - any other non-POST → `200 text/plain "agent-messenger broker <version>\n"`
@@ -79,7 +79,7 @@ function unauthorized(event: H3Event): BrokerErrorResponse {
   return { error: "unauthorized" };
 }
 
-/** Same semantics as `readJson` in `src/broker.js`: empty body → `{}`, bad JSON → throws. */
+/** Same semantics as `readJson` in `legacy/src/broker.js`: empty body → `{}`, bad JSON → throws. */
 async function readJson(event: H3Event): Promise<unknown> {
   const raw = await readRawBody(event, "utf8");
   return raw ? JSON.parse(raw) : {};

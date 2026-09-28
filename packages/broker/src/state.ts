@@ -5,7 +5,7 @@ import { log } from "./log.js";
 
 /**
  * On-disk shape of `~/.agent-messenger/broker.json` (written by core 0.4.0
- * `src/broker.js`). Not part of the protocol package — broker-private.
+ * `legacy/src/broker.js`). Not part of the protocol package — broker-private.
  */
 export interface BrokerStateFile {
   peers: Peer[];

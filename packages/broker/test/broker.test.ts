@@ -10,7 +10,7 @@ import { DISCOVERY_PROBE, type DiscoveryReply, type Peer } from "@agent-hand/mes
 import { startBroker, VERSION, type BrokerHandle, type BrokerStateFile } from "../src/index.js";
 
 const TOKEN = "test-token";
-const OLD_CLI = resolve(fileURLToPath(new URL("../../../../main/bin/agent-messenger.js", import.meta.url)));
+const OLD_CLI = resolve(fileURLToPath(new URL("../../../legacy/bin/agent-messenger.js", import.meta.url)));
 
 const dirs: string[] = [];
 const brokers: BrokerHandle[] = [];

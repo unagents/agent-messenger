@@ -1,5 +1,5 @@
 /**
- * Package fetch + cache, ported from `loader/loader.js`.
+ * Package fetch + cache, ported from `legacy/loader/loader.js`.
  *
  * Layout: `<pkgsDir>/<short name>@<spec>/<hash>/`
  *   package.json        {"name":"agent-messenger-pkg-cache","private":true}

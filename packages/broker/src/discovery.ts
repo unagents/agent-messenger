@@ -12,7 +12,7 @@ export interface DiscoveryResponderOptions {
 /**
  * UDP discovery responder: answer `{"agent-messenger":"probe"}` with our
  * id / port / version so clients on the LAN can find us without configuration.
- * Transcribed from `src/broker.js`.
+ * Transcribed from `legacy/src/broker.js`.
  */
 export function startDiscoveryResponder(opts: DiscoveryResponderOptions): Promise<Socket> {
   const disco = createSocket({ type: "udp4", reuseAddr: true });

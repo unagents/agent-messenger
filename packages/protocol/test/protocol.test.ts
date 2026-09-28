@@ -14,15 +14,15 @@ import {
   POLL_INTERVAL_MS,
 } from "../src/index.js";
 
-// Current JavaScript implementation (reference, kept at the repository root).
-const legacyDir = fileURLToPath(new URL("../../../src/", import.meta.url));
+// 0.4.x JavaScript implementation (reference, kept under legacy/).
+const legacyDir = fileURLToPath(new URL("../../../legacy/src/", import.meta.url));
 
 function envNamesIn(file: string): Set<string> {
   const text = readFileSync(`${legacyDir}${file}`, "utf8");
   return new Set(text.match(/process\.env\.AGENT_MESSENGER_\w+/g)?.map((m) => m.replace("process.env.", "")));
 }
 
-describe("constants match src/config.js", () => {
+describe("constants match legacy/src/config.js", () => {
   it("defaults", async () => {
     // config.js reads process.env at import time; strip overrides first.
     for (const k of Object.keys(process.env)) if (k.startsWith("AGENT_MESSENGER_")) delete process.env[k];
@@ -42,7 +42,7 @@ describe("constants match src/config.js", () => {
   });
 });
 
-describe("routes match src/broker.js", () => {
+describe("routes match legacy/src/broker.js", () => {
   it("POST route table", () => {
     const text = readFileSync(`${legacyDir}broker.js`, "utf8");
     const block = text.slice(text.indexOf("const ROUTES = {"), text.indexOf("};", text.indexOf("const ROUTES = {")));

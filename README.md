@@ -13,7 +13,7 @@ Claude Code セッション同士（同一ホスト・別ホスト）でメッ�
 | `client-darwin-arm64/` `client-linux-x64/` | `@agent-hand/messenger-client-<platform>-<arch>` | Gitea Packages | client のネイティブ実行ファイル（PerryTS で `client/src/main.ts` を compile）。`os` / `cpu` 付き。CLI の `mcp` はこれが取得できればこちらを使い、無ければ node 版に落ちる |
 | `protocol/` | `@agent-hand/messenger-protocol` | Gitea Packages | broker HTTP API・UDP 発見・session socket の型と定数。broker の runtime 依存、client / cli は型のみ参照 |
 
-`src/` `bin/` `loader/` `test/`（ルート直下）は 0.4.0 までの JavaScript 実装。参照用に残してあり、ビルド・テスト・配布の対象外。
+`legacy/`（`src/` `bin/` `loader/` `test/`）は 0.4.0 までの JavaScript 実装。client / broker の互換テストと protocol の定数突き合わせが参照する。ビルド・配布の対象外。
 
 ```
   Mac (local cap / master-cap)              192.168.1.202 (remote cap)

@@ -3,7 +3,7 @@
  * Compile the client (`packages/client/src/main.ts`) to a native executable with
  * PerryTS and generate the platform package for this host.
  *
- *   PERRY_HOME=/path/to/spike-perry node scripts/build-native.mjs [--clean]
+ *   PERRY_HOME=/path/to/toolchain/perry node scripts/build-native.mjs [--clean]
  *
  * PERRY_HOME layout (same on Mac and 204):
  *   <PERRY_HOME>/rel/perry            perry executable

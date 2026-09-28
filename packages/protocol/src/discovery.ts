@@ -1,7 +1,7 @@
 /**
  * UDP LAN discovery — probe / reply JSON shapes.
  *
- * Transcribed from `src/resolve.js` (`discoverBrokers`) and `src/broker.js`
+ * Transcribed from `legacy/src/resolve.js` (`discoverBrokers`) and `legacy/src/broker.js`
  * (discovery responder). Both packets are single JSON objects; the broker's
  * address is the reply packet's UDP source address.
  */

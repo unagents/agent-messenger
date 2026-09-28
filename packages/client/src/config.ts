@@ -21,7 +21,7 @@ export type DeliveryMode = "auto" | "socket" | "channel";
 
 /**
  * Client configuration, read from the environment once at startup.
- * Same variables and defaults as the current `src/config.js` / `src/server.js`.
+ * Same variables and defaults as the current `legacy/src/config.js` / `legacy/src/server.js`.
  */
 export interface ClientConfig {
   /** Explicit broker host (`AGENT_MESSENGER_HOST`); `""` when unset or `"auto"`. */
