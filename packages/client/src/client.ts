@@ -203,6 +203,8 @@ export async function startClient(options: StartClientOptions = {}): Promise<voi
   let myGitRoot: string | null = null;
   /** messages received but not yet acknowledged by the session */
   const localBuffer: BufferedMessage[] = [];
+  /** body=pull: ids already covered by an unread notice (cleared by check_messages) */
+  const notifiedIds = new Set<number>();
 
   const resolved = await resolveBroker(cfg, broker, log);
   await ensureBroker(cfg, env, broker, resolved, log);
@@ -212,6 +214,7 @@ export async function startClient(options: StartClientOptions = {}): Promise<voi
   log(`v${VERSION} host=${myHostname} broker=${broker.getUrl()} (${resolved.isLocal ? "local" : "remote"}, via ${resolved.source})`);
   log(`cwd=${myCwd} git_root=${myGitRoot ?? "(none)"} tty=${tty ?? "(unknown)"} name=${myName || "(unset)"}`);
   log(`delivery=${cfg.delivery} session_socket=${cfg.sessionSocket || "(none)"}`);
+  if (cfg.body === "pull") log("body=pull (unread notice only; message text via check_messages)");
 
   const register = async () => {
     const reg = await broker.post("/register", {
@@ -298,6 +301,7 @@ export async function startClient(options: StartClientOptions = {}): Promise<voi
           await broker.post("/acknowledge-messages", { id: myId as string, message_ids: ids }).catch(() => {});
           const count = localBuffer.length;
           localBuffer.length = 0;
+          notifiedIds.clear();
           return text(`${count} message(s):\n\n${out}`);
         }
         default:
@@ -325,14 +329,65 @@ export async function startClient(options: StartClientOptions = {}): Promise<voi
     if (i !== -1) localBuffer.splice(i, 1);
   }
 
+  function senderLabel(entry: BufferedMessage): string {
+    return `${entry.from_name || entry.from_id}${entry.from_hostname ? `@${entry.from_hostname}` : ""}`;
+  }
+
+  function channelMeta(entry: BufferedMessage) {
+    return {
+      from_id: entry.from_id,
+      from_name: entry.from_name,
+      from_hostname: entry.from_hostname,
+      from_summary: entry.from_summary,
+      from_cwd: entry.from_cwd,
+      sent_at: entry.sent_at,
+    };
+  }
+
+  /**
+   * body=pull: put one unread notice into the session (session socket → channel)
+   * when the buffer holds ids not yet covered by a notice. The text stays
+   * unacknowledged at the broker until `check_messages`.
+   */
+  async function notifyUnread() {
+    if (localBuffer.length === 0) return;
+    if (!localBuffer.some((b) => !notifiedIds.has(b.id))) return;
+    const latest = localBuffer[localBuffer.length - 1];
+    const who = senderLabel(latest);
+    const notice = `[agent-messenger] 未読 ${localBuffer.length} 件（from ${who}）。check_messages で受信してください`;
+    let delivered = false;
+    const useSocket = cfg.delivery === "socket" || (cfg.delivery === "auto" && cfg.sessionSocket);
+    if (useSocket) {
+      try {
+        await postToSession(cfg.sessionSocket, cfg.sessionToken, notice);
+        log(`Session socket unread notice OK (${localBuffer.length}) from ${who}`);
+        delivered = true;
+      } catch (e) {
+        log(`Session socket unread notice FAILED from ${latest.from_id}: ${errorMessage(e)} — trying channel`);
+      }
+    }
+    if (!delivered) {
+      try {
+        await mcp.notification("notifications/claude/channel", { content: notice, meta: channelMeta(latest) });
+        log(`Channel unread notice OK (${localBuffer.length}) from ${who}`);
+        delivered = true;
+      } catch (e) {
+        log(`Channel unread notice FAILED from ${latest.from_id}: ${errorMessage(e)}`);
+      }
+    }
+    if (delivered) for (const b of localBuffer) notifiedIds.add(b.id);
+  }
+
   /**
    * Pull undelivered messages from the broker into the local buffer.
    * When `push` is true, deliver each via session socket / channel notification
-   * and acknowledge on success.
+   * and acknowledge on success (body=push), or deliver one unread notice and
+   * keep the text unacknowledged (body=pull).
    */
   async function pollBroker(push: boolean) {
     if (!myId) return;
     const result = await broker.post("/poll-messages", { id: myId });
+    const pull = cfg.body === "pull";
     for (const msg of result.messages) {
       const sender = await lookupSender(msg.from_id);
       const entry: BufferedMessage = {
@@ -344,7 +399,7 @@ export async function startClient(options: StartClientOptions = {}): Promise<voi
       };
       localBuffer.push(entry);
       if (localBuffer.length > MAX_BUFFER) localBuffer.splice(0, localBuffer.length - MAX_BUFFER);
-      if (!push) continue;
+      if (!push || pull) continue;
 
       const useSocket = cfg.delivery === "socket" || (cfg.delivery === "auto" && cfg.sessionSocket);
       if (useSocket) {
@@ -382,6 +437,7 @@ export async function startClient(options: StartClientOptions = {}): Promise<voi
         log(`Channel push FAILED from ${entry.from_id}: ${errorMessage(e)}`);
       }
     }
+    if (push && pull) await notifyUnread();
   }
 
   async function pollLoop() {

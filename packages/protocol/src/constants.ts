@@ -63,6 +63,12 @@ export const ENV = {
   HEARTBEAT_MS: "AGENT_MESSENGER_HEARTBEAT_MS",
   /** Inbound delivery mode: `"auto"` (default) / `"socket"` / `"channel"`. */
   DELIVERY: "AGENT_MESSENGER_DELIVERY",
+  /**
+   * Inbound body mode: `"push"` (default) delivers the message text into the
+   * session; `"pull"` delivers only an unread notice and keeps the text at the
+   * broker until `check_messages`. Client-only (not in the legacy `src/*.js`).
+   */
+  BODY: "AGENT_MESSENGER_BODY",
 } as const;
 
 export type EnvName = (typeof ENV)[keyof typeof ENV];

@@ -43,6 +43,7 @@ export const ENV = {
   DISCOVERY_TIMEOUT_MS: "AGENT_MESSENGER_DISCOVERY_TIMEOUT_MS",
   HEARTBEAT_MS: "AGENT_MESSENGER_HEARTBEAT_MS",
   DELIVERY: "AGENT_MESSENGER_DELIVERY",
+  BODY: "AGENT_MESSENGER_BODY",
 };
 
 /** Command used to auto-launch a local broker (whitespace separated). Client-only, not in protocol. */
