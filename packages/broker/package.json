@@ -1,0 +1,40 @@
+{
+  "name": "@agent-hand/messenger-broker",
+  "version": "0.5.0",
+  "description": "agent-messenger broker: HTTP daemon that tracks peers and routes messages between Claude Code sessions.",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "http://192.168.1.202/gitea/agent-hand/messenger.git",
+    "directory": "packages/broker"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "import": "./dist/index.mjs"
+    },
+    "./main": "./dist/main.mjs"
+  },
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "registry": "http://192.168.1.202/gitea/api/packages/agent-hand/npm/"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "unbuild",
+    "typecheck": "tsgo -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@agent-hand/messenger-protocol": "0.5.0",
+    "consola": "^3.4.2",
+    "defu": "^6.1.7",
+    "h3": "^1.15.11",
+    "listhen": "^1.10.1"
+  }
+}

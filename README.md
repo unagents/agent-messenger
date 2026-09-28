@@ -1,18 +1,19 @@
 # agent-messenger
 
 Claude Code セッション同士（同一ホスト・別ホスト）でメッセージをやり取りする仕組み。
-[claude-peers-mcp](https://github.com/louislva/claude-peers-mcp) の設計を引き継ぎ、Node だけで動くように書き直したもの（Bun 不要、ビルド不要）。
+[claude-peers-mcp](https://github.com/louislva/claude-peers-mcp) の設計を引き継いだもの。TypeScript の monorepo（npm workspaces、unbuild）。
 
-配布は 2 パッケージ:
+## パッケージ構成（`packages/`）
 
-- **`@agent-hand/messenger`（loader、`loader/`）** — `npx` が引く薄いランチャー。Verdaccio（`http://192.168.1.202/npm/`）に置く。本体を設定可能な npm ソースから取得・キャッシュして実行する。詳細は `loader/README.md`。
-- **`@agent-hand/messenger-core`（本体、このリポジトリのルート）** — Gitea Packages（`http://192.168.1.202/gitea/api/packages/agent-hand/npm/`）に置く。置き場を変えても loader の環境変数で追従でき、`claude mcp add` の登録は変わらない。
+| ディレクトリ | パッケージ | 置き場 | 内容 |
+|---|---|---|---|
+| `cli/` | `@agent-hand/messenger` | Verdaccio `http://192.168.1.202/npm/` | `npx -y @agent-hand/messenger <command>` の入口（citty）。broker / client を Gitea Packages から取得して `~/.agent-messenger/pkgs/` にキャッシュし、起動する。旧 loader の後継 |
+| `broker/` | `@agent-hand/messenger-broker` | Gitea Packages `http://192.168.1.202/gitea/api/packages/agent-hand/npm/` | 1 台に 1 つ動かす HTTP デーモン（h3 + listhen、node）。peer の登録とメッセージ中継。状態は `~/.agent-messenger/broker.json` |
+| `client/` | `@agent-hand/messenger-client` | Gitea Packages | Claude Code セッションごとに起動する stdio MCP サーバー（node 版、runtime 依存ゼロ）。broker に登録し、ツールを提供し、受信メッセージをセッションへ投入する |
+| `client-darwin-arm64/` `client-linux-x64/` | `@agent-hand/messenger-client-<platform>-<arch>` | Gitea Packages | client のネイティブ実行ファイル（PerryTS で `client/src/main.ts` を compile）。`os` / `cpu` 付き。CLI の `mcp` はこれが取得できればこちらを使い、無ければ node 版に落ちる |
+| `protocol/` | `@agent-hand/messenger-protocol` | Gitea Packages | broker HTTP API・UDP 発見・session socket の型と定数。broker の runtime 依存、client / cli は型のみ参照 |
 
-本体の構成:
-
-- **broker** — 1 台に 1 つ動かす HTTP デーモン。peer の登録とメッセージ中継。状態は `~/.agent-messenger/broker.json` に保存。
-- **mcp** — Claude Code セッションごとに起動する stdio MCP サーバー。broker に登録し、ツールを提供し、受信メッセージを channel 通知で押し込む。
-- **CLI** — シェルから peer 一覧・送信・状態確認。
+`src/` `bin/` `loader/` `test/`（ルート直下）は 0.4.0 までの JavaScript 実装。参照用に残してあり、ビルド・テスト・配布の対象外。
 
 ```
   Mac (local cap / master-cap)              192.168.1.202 (remote cap)
@@ -124,26 +125,45 @@ npx -y @agent-hand/messenger send master-cap "作業完了"
 
 同一マシン内のセッション間は Claude Code 標準の cross-session messaging（`SendMessage` / `ListAgents`、`/list-agents`）でも送れる。agent-messenger が要るのはホストをまたぐ場合（Remote Control を使わない構成）。
 
-## テスト
+## CLI（loader）の環境変数
+
+| 変数 | 既定 | 用途 |
+|---|---|---|
+| `AGENT_MESSENGER_REGISTRY` | Gitea Packages の URL | broker / client / platform package の取得元 |
+| `AGENT_MESSENGER_BROKER_SPEC` / `AGENT_MESSENGER_CLIENT_SPEC` | `latest` | 取得する版（`1.2.3` / `file:…` など npm spec） |
+| `AGENT_MESSENGER_PKGS_DIR` | `~/.agent-messenger/pkgs` | キャッシュ先 |
+| `AGENT_MESSENGER_REFRESH`（旧 `AGENT_MESSENGER_CORE_REFRESH` も可） | なし | `1` で再取得 |
+| `AGENT_MESSENGER_TTL_HOURS` | `24` | `latest` 等の再確認間隔。`0` で毎回 |
+| `AGENT_MESSENGER_CLIENT` | なし（auto） | `native` / `node` で client の種類を固定 |
+
+## ビルドとテスト
 
 ```bash
-npm install
-npm test
+npm ci
+npm run build        # protocol を先に build してから全 workspace（unbuild → packages/*/dist）
+npm run typecheck    # tsgo（@typescript/native-preview）
+npm test             # vitest（broker 10 / cli 15 / client 15 / protocol 4）
 ```
 
-broker 起動、HTTP API、MCP 2 セッション間の送受信（channel 通知 / check_messages）を通しで検証する。
+テストは loopback で broker・疑似 npm registry を立てる（192.168.1.202 には接続しない）。
+
+ネイティブ client（PerryTS）:
+
+```bash
+PERRY_HOME=<perry の rel/ と clang がある dir> node scripts/build-native.mjs [--clean]
+```
+
+`packages/client/native/messenger-client-<platform>-<arch>` と `packages/client-<platform>-<arch>/`（`package.json` + `bin/messenger-client`）を生成する。実行したホストの platform のみ。darwin-arm64 は Mac、linux-x64 は 204 で実行し、`bin/messenger-client` を持ち帰る。
+
+統合確認（疑似 registry から 6 パッケージを取得し、`cli discover / mcp（native・node）/ peers / status / send / broker`、session socket 投入、node フォールバックを通す）:
+
+```bash
+node scripts/e2e-mcp.mjs [--broker direct|cli]
+```
 
 ## 公開手順
 
-```bash
-# 本体 → Gitea Packages（初回のみ: node deploy/npmrc-gitea-auth.js で ~/.npmrc に認証行を作る。git の保存済み資格情報を使う）
-npm publish --registry http://192.168.1.202/gitea/api/packages/agent-hand/npm/
-
-# loader → Verdaccio（~/.npmrc の @agent-hand:registry=http://192.168.1.202/npm/ を使う）
-cd loader && npm publish
-```
-
-loader と本体は独立して版を上げられる。loader は `latest` の本体を 24 時間ごとに再確認する（`AGENT_MESSENGER_CORE_TTL_HOURS`）。
+`docs/release-0.5.0.md`（publish の順序: protocol → broker → client → platform 2 種 → cli、broker 切替、ロールバック）。
 
 ## 既知の課題
 

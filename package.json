@@ -1,7 +1,8 @@
 {
-  "name": "@agent-hand/messenger-core",
-  "version": "0.4.0",
-  "description": "agent-messenger core: broker + stdio MCP server + CLI for Claude Code session messaging. Launched via the @agent-hand/messenger loader.",
+  "name": "agent-messenger",
+  "version": "0.5.0",
+  "private": true,
+  "description": "agent-messenger monorepo: broker, stdio MCP client, CLI loader and shared protocol for Claude Code session messaging.",
   "type": "module",
   "license": "MIT",
   "repository": {
@@ -9,23 +10,23 @@
     "url": "http://192.168.1.202/gitea/agent-hand/messenger.git"
   },
   "homepage": "http://192.168.1.202/gitea/agent-hand/messenger",
-  "bin": {
-    "agent-messenger": "bin/agent-messenger.js"
-  },
-  "files": [
-    "bin",
-    "src",
-    "README.md"
+  "workspaces": [
+    "packages/*",
+    "!packages/client-*"
   ],
   "engines": {
     "node": ">=20"
   },
   "scripts": {
-    "broker": "node bin/agent-messenger.js broker",
-    "mcp": "node bin/agent-messenger.js mcp",
-    "test": "node --test"
+    "build": "npm run build -w packages/protocol && npm run build --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present"
   },
-  "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.27.1"
+  "devDependencies": {
+    "@types/node": "^24.19.0",
+    "@typescript/native-preview": "7.0.0-dev.20260707.2",
+    "typescript": "^5.9.3",
+    "unbuild": "^3.6.1",
+    "vitest": "^5.0.2"
   }
 }
