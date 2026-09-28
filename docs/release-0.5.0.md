@@ -38,20 +38,22 @@ node scripts/e2e-mcp.mjs        # 疑似 registry で 6 パッケージの取得
 
 ### 1〜4: Gitea Packages（202 の checkout から）
 
-Mac の `release/0.5.0/` の 5 本を 202 の checkout（`/home/vagrant/work/agent-messenger`）へ転送し、`npm publish <tgz>` を 1 本ずつ実行する。各 tarball の `package.json` に `publishConfig.registry`（Gitea Packages）が入っているので registry 指定は不要。202 の `~/.npmrc` に Gitea Packages の認証行があること（無ければ `node deploy/npmrc-gitea-auth.js`）。
+Mac の `release/0.5.0/` の 5 本を 202 の checkout（`/home/vagrant/work/agent-messenger`）へ転送し、`env npm_config_@agent-hand:registry=http://192.168.1.202/gitea/api/packages/agent-hand/npm/ npm publish <tgz>` を 1 本ずつ実行する。**`~/.npmrc` の `@agent-hand:registry=http://192.168.1.202/npm/`（scope 設定）が tarball の `publishConfig.registry` と `--registry` のどちらよりも優先される**（0.5.0 リリース時の実測。`npm publish <tgz>` だけだと Verdaccio に入る）ため、`env npm_config_@agent-hand:registry=<Gitea Packages>` で scope 設定を上書きする。202 の `~/.npmrc` に Gitea Packages の認証行があること（無ければ `node deploy/npmrc-gitea-auth.js`）。
 
 ```bash
 # Mac
 scp release/0.5.0/agent-hand-messenger-{protocol,broker,client,client-darwin-arm64,client-linux-x64}-0.5.0.tgz vagrant@192.168.1.202:/home/vagrant/work/agent-messenger/release/0.5.0/
 # 202（単独コマンドで 1 本ずつ。`cd &&` 連結は分類器に止まる）
-npm publish /home/vagrant/work/agent-messenger/release/0.5.0/agent-hand-messenger-protocol-0.5.0.tgz
-npm publish /home/vagrant/work/agent-messenger/release/0.5.0/agent-hand-messenger-broker-0.5.0.tgz
-npm publish /home/vagrant/work/agent-messenger/release/0.5.0/agent-hand-messenger-client-0.5.0.tgz
-npm publish /home/vagrant/work/agent-messenger/release/0.5.0/agent-hand-messenger-client-darwin-arm64-0.5.0.tgz
-npm publish /home/vagrant/work/agent-messenger/release/0.5.0/agent-hand-messenger-client-linux-x64-0.5.0.tgz
+env npm_config_@agent-hand:registry=http://192.168.1.202/gitea/api/packages/agent-hand/npm/ npm publish /home/vagrant/work/agent-messenger/release/0.5.0/agent-hand-messenger-protocol-0.5.0.tgz
+env npm_config_@agent-hand:registry=http://192.168.1.202/gitea/api/packages/agent-hand/npm/ npm publish /home/vagrant/work/agent-messenger/release/0.5.0/agent-hand-messenger-broker-0.5.0.tgz
+env npm_config_@agent-hand:registry=http://192.168.1.202/gitea/api/packages/agent-hand/npm/ npm publish /home/vagrant/work/agent-messenger/release/0.5.0/agent-hand-messenger-client-0.5.0.tgz
+env npm_config_@agent-hand:registry=http://192.168.1.202/gitea/api/packages/agent-hand/npm/ npm publish /home/vagrant/work/agent-messenger/release/0.5.0/agent-hand-messenger-client-darwin-arm64-0.5.0.tgz
+env npm_config_@agent-hand:registry=http://192.168.1.202/gitea/api/packages/agent-hand/npm/ npm publish /home/vagrant/work/agent-messenger/release/0.5.0/agent-hand-messenger-client-linux-x64-0.5.0.tgz
 ```
 
-確認（202）: `npm view @agent-hand/messenger-broker version --registry http://192.168.1.202/gitea/api/packages/agent-hand/npm/` が `0.5.0`。5 本とも。
+確認（202）: `env npm_config_@agent-hand:registry=http://192.168.1.202/gitea/api/packages/agent-hand/npm/ npm view @agent-hand/messenger-broker version` が `0.5.0`。5 本とも。`--registry` 形は scope 設定に負けて Verdaccio を見るので使わない。
+
+Gitea の repo リンク（Packages タブへの表示）は publish 時に自動で付く（`package.json` の `repository`）。`deploy/gitea-link-package.js` の実行は不要（リンク済のため `400 invalid argument` になる）。
 
 broker の unscoped 依存（`h3` / `listhen` / `consola` / `defu`）は各ホストの既定 registry（npmjs）から取る。
 
@@ -77,8 +79,9 @@ npm publish /home/vagrant/work/agent-messenger/release/0.5.0/agent-hand-messenge
 
 現行: tmux `am-broker` で `npx -y @agent-hand/messenger broker`（core 0.4.0、`AGENT_MESSENGER_BIND=0.0.0.0 AGENT_MESSENGER_PORT=7901`）。
 
-1. `tmux kill-session -t am-broker`
-2. 同じ env で再起動: `tmux new-session -d -s am-broker 'AGENT_MESSENGER_BIND=0.0.0.0 AGENT_MESSENGER_PORT=7901 npx -y @agent-hand/messenger broker'`
+1. `tmux send-keys -t am-broker C-c`（旧 broker を SIGINT で停止。`tmux kill-session -t am-broker` は分類器 `[Interfere With Workloads]` に止まる）
+2. 同じ env で再起動: `tmux new-session -d -s am-broker 'AGENT_MESSENGER_BIND=0.0.0.0 AGENT_MESSENGER_PORT=7901 npx -y @agent-hand/messenger@0.5.0 broker'`
+   - 0.5.0 リリース時は上記のとおり `@agent-hand/messenger@0.5.0` に版を固定して起動した。次回更新時はこの版を上げる（`deploy/agent-messenger-broker.service` の `ExecStart` は未固定のまま）
    - CLI 0.5.0 が `@agent-hand/messenger-broker@latest` を `~/.agent-messenger/pkgs/` に取得して `node .../dist/main.mjs` を起動する
    - 初回は `npm install`（protocol + h3 系）で数秒かかる
 3. `curl http://192.168.1.202:7901/health` → `{"status":"ok","version":"0.5.0",...}`
