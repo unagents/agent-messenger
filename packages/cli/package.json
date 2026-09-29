@@ -36,6 +36,6 @@
     "citty": "^0.1.6"
   },
   "devDependencies": {
-    "@agent-hand/messenger-protocol": "0.5.0"
+    "@agent-hand/messenger-protocol": "0.6.0"
   }
 }
