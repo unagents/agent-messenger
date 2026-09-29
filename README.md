@@ -59,7 +59,7 @@ claude mcp add --scope user --transport stdio agent-messenger \
 
 ### 3. Claude Code の起動
 
-通常の `claude` 起動でよい。受信メッセージは Claude Code が各セッションに用意する inbox socket（`CLAUDE_CODE_MESSAGING_SOCKET`、MCP 子プロセスに継承される）へ投入され、会話に「別セッションからのメッセージ」として届く（Claude Code v2.1.224 以降、cross-session messaging）。
+通常の `claude` 起動でよい。着信は Claude Code が各セッションに用意する inbox socket（`CLAUDE_CODE_MESSAGING_SOCKET`、MCP 子プロセスに継承される）へ投入され、会話に「別セッションからのメッセージ」として届く（Claude Code v2.1.224 以降、cross-session messaging）。投入内容は送信側が決める: `send_message` の既定（`delivery: "pull"`）は着信通知 1 行（本文は `check_messages` で取得）、`delivery: "push"` は本文そのもの、`send_ping` は ping 通知 1 行。
 
 socket が無い環境（古いバージョン、bare mode 等）では channel push にフォールバックする。channel push は起動フラグが要る:
 

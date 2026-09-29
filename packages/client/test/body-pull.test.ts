@@ -1,6 +1,7 @@
 /**
- * AGENT_MESSENGER_BODY=pull: the session receives only an unread notice line
- * (no message text); the text stays at the broker until check_messages.
+ * send_message delivery "pull" (default): the session receives only an unread
+ * notice line (no message text); the text stays at the broker until
+ * check_messages. send_ping: a one-line ping notice, never in check_messages.
  */
 import type { ChildProcess } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -55,18 +56,16 @@ afterAll(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-describe("body=pull", () => {
+describe("delivery=pull (default) and send_ping", () => {
   it("session socket gets one unread notice per new message set; check_messages returns the text and stops the notices", async () => {
     const { server, lines } = await sessionInbox(join(dir, "session.sock"));
     const cap = await startClientProcess({
       ...env,
       AGENT_MESSENGER_NAME: "cap-pull",
-      AGENT_MESSENGER_BODY: "pull",
       CLAUDE_CODE_MESSAGING_SOCKET: join(dir, "session.sock"),
       CLAUDE_CODE_MESSAGING_TOKEN: "tok",
     });
     await cap.initialize();
-    expect(cap.stderrText()).toMatch(/body=pull/);
     const master = await startClientProcess({ ...env, AGENT_MESSENGER_NAME: "master-pull" });
     await master.initialize();
 
@@ -84,7 +83,7 @@ describe("body=pull", () => {
     expect(users().length).toBe(1);
 
     // 2nd message → the notice is renewed with the unread total
-    await master.callTool("send_message", { to: "cap-pull", message: "secret body two" });
+    await master.callTool("send_message", { to: "cap-pull", message: "secret body two", delivery: "pull" });
     await cap.waitFor(() => users().length >= 2, 5000);
     expect(users()[1]).toBe(`[agent-messenger] 未読 2 件（from master-pull@${hostname()}）。check_messages で受信してください`);
     expect(users()[1]).not.toMatch(/secret body/);
@@ -108,7 +107,7 @@ describe("body=pull", () => {
   });
 
   it("channel route: unread notice only, text via check_messages", async () => {
-    const cap = await startClientProcess({ ...env, AGENT_MESSENGER_NAME: "cap-pull-ch", AGENT_MESSENGER_BODY: "pull" });
+    const cap = await startClientProcess({ ...env, AGENT_MESSENGER_NAME: "cap-pull-ch" });
     await cap.initialize();
     const master = await startClientProcess({ ...env, AGENT_MESSENGER_NAME: "master-pull-ch" });
     await master.initialize();
@@ -124,5 +123,51 @@ describe("body=pull", () => {
     expect(cm.content[0].text).toMatch(/^1 message\(s\):\n\nFrom master-pull-ch .*:\nchannel secret$/s);
     await cap.close();
     await master.close();
+  });
+
+  it("send_ping: one ping notice with the sender, acknowledged, not in check_messages", async () => {
+    const { server, lines } = await sessionInbox(join(dir, "session-ping.sock"));
+    const cap = await startClientProcess({
+      ...env,
+      AGENT_MESSENGER_NAME: "cap-ping",
+      CLAUDE_CODE_MESSAGING_SOCKET: join(dir, "session-ping.sock"),
+      CLAUDE_CODE_MESSAGING_TOKEN: "tok",
+    });
+    await cap.initialize();
+    const worker = await startClientProcess({ ...env, AGENT_MESSENGER_NAME: "worker-ping" });
+    await worker.initialize();
+
+    const r = await worker.callTool("send_ping", { to: "cap-ping" });
+    expect(r.content[0].text).toMatch(/^Ping sent to cap-ping/);
+    const users = () => lines.filter((l) => l.type === "user").map((l) => l.message.content as string);
+    await cap.waitFor(() => users().length >= 1, 5000);
+    expect(users()).toEqual([`[agent-messenger] ping（from worker-ping@${hostname()}）`]);
+
+    // no unread notice follows and nothing is left to read
+    await sleep(2500);
+    expect(users().length).toBe(1);
+    const cm = await cap.callTool("check_messages", {});
+    expect(cm.content[0].text).toMatch(/No new messages/);
+
+    // a second ping gives a second notice
+    await worker.callTool("send_ping", { to: "cap-ping" });
+    await cap.waitFor(() => users().length >= 2, 5000);
+    expect(users()[1]).toBe(`[agent-messenger] ping（from worker-ping@${hostname()}）`);
+
+    const bad = await worker.callTool("send_ping", { to: "nobody" });
+    expect(bad.isError).toBe(true);
+
+    await cap.close();
+    await worker.close();
+    server.close();
+  });
+
+  it("send_message rejects an unknown delivery", async () => {
+    const a = await startClientProcess({ ...env, AGENT_MESSENGER_NAME: "deliv-a" });
+    await a.initialize();
+    const r = await a.callTool("send_message", { to: "deliv-a", message: "x", delivery: "loud" });
+    expect(r.isError).toBe(true);
+    expect(r.content[0].text).toMatch(/Invalid delivery: loud/);
+    await a.close();
   });
 });

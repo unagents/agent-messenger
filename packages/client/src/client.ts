@@ -27,16 +27,22 @@ export interface StartClientOptions {
   log?: Logger;
 }
 
-export const INSTRUCTIONS = `You are connected to agent-messenger. Other Claude Code sessions on this machine AND on remote hosts can find you and send you messages.
+export const INSTRUCTIONS = `agent-messenger v${VERSION}
 
-When a <channel source="agent-messenger" ...> message arrives, respond right away: read from_id / from_name / from_hostname / from_cwd, reply with send_message (to = from_name or from_id), then resume your work.
+You are connected to agent-messenger. Other Claude Code sessions on this machine AND on remote hosts can find you and send you messages.
+
+Inbound traffic arrives in the conversation as one of:
+- "[agent-messenger] 未読 N 件（from <name>@<host>）…" — an unread notice. Call check_messages to read the text, reply with send_message if needed, then resume your work.
+- "[agent-messenger] ping（from <name>@<host>）" — the sender is alive and working. No text, nothing to read, no reply needed.
+- "[agent-messenger] message from <name>@<host>" followed by the text — sent with delivery "push". Reply with send_message if needed, then resume your work.
 
 Tools:
 - list_peers: discover sessions (scope: all / host / directory / repo)
-- send_message: send to a peer by name or id (cross-host)
+- send_message: send to a peer by name or id (cross-host). delivery "pull" (default) = the receiver sees only an unread notice; "push" = the text is shown directly
+- send_ping: send an empty liveness signal (e.g. periodically while working, so the orchestrator can tell progress from a stall)
 - set_name: give this session a stable name (e.g. "master-cap", "agent-messenger") so others can address it by name
 - set_summary: describe what you are working on (visible in list_peers)
-- check_messages: read buffered messages. Inbound messages are normally delivered into the conversation automatically (via the session inbox socket, or via channel push when Claude Code was started with --dangerously-load-development-channels server:agent-messenger). If neither works, call check_messages to receive.
+- check_messages: read unread message texts. Notices are delivered into the conversation automatically (via the session inbox socket, or via channel push when Claude Code was started with --dangerously-load-development-channels server:agent-messenger); call check_messages any time to read.
 
 On start, call set_name (if not already named) and set_summary.`;
 
@@ -45,6 +51,7 @@ export const CAPABILITIES = {
   tools: {},
 };
 
+/** Every tool description starts with the version so `/mcp` → View tools shows which build is running. */
 export const TOOLS = [
   {
     name: "list_peers",
@@ -71,8 +78,24 @@ export const TOOLS = [
       properties: {
         to: { type: "string", description: "Target peer name or id" },
         message: { type: "string", description: "Message text" },
+        delivery: {
+          type: "string",
+          enum: ["pull", "push"],
+          description:
+            '"pull" (default) = the receiver sees only an unread notice (sender shown) and reads the text with check_messages. "push" = the text is shown in the receiver\'s conversation directly.',
+        },
       },
       required: ["to", "message"],
+    },
+  },
+  {
+    name: "send_ping",
+    description:
+      "Send an empty liveness signal to a peer. The receiver sees a one-line ping notice (sender shown), nothing to read or reply to. Use it periodically during long work so the orchestrator can tell progress from a stall.",
+    inputSchema: {
+      type: "object",
+      properties: { to: { type: "string", description: "Target peer name or id" } },
+      required: ["to"],
     },
   },
   {
@@ -96,10 +119,10 @@ export const TOOLS = [
   {
     name: "check_messages",
     description:
-      "Read and acknowledge buffered messages from other sessions. Required when channel push is not enabled; safe to call any time.",
+      "Read and acknowledge unread messages from other sessions (the text behind an unread notice). Safe to call any time.",
     inputSchema: { type: "object", properties: {} },
   },
-];
+].map((t) => ({ ...t, description: `[agent-messenger v${VERSION}] ${t.description}` }));
 
 const MAX_BUFFER = 200;
 
@@ -203,7 +226,7 @@ export async function startClient(options: StartClientOptions = {}): Promise<voi
   let myGitRoot: string | null = null;
   /** messages received but not yet acknowledged by the session */
   const localBuffer: BufferedMessage[] = [];
-  /** body=pull: ids already covered by an unread notice (cleared by check_messages) */
+  /** ids already covered by an unread notice (cleared by check_messages) */
   const notifiedIds = new Set<number>();
 
   const resolved = await resolveBroker(cfg, broker, log);
@@ -214,7 +237,6 @@ export async function startClient(options: StartClientOptions = {}): Promise<voi
   log(`v${VERSION} host=${myHostname} broker=${broker.getUrl()} (${resolved.isLocal ? "local" : "remote"}, via ${resolved.source})`);
   log(`cwd=${myCwd} git_root=${myGitRoot ?? "(none)"} tty=${tty ?? "(unknown)"} name=${myName || "(unset)"}`);
   log(`delivery=${cfg.delivery} session_socket=${cfg.sessionSocket || "(none)"}`);
-  if (cfg.body === "pull") log("body=pull (unread notice only; message text via check_messages)");
 
   const register = async () => {
     const reg = await broker.post("/register", {
@@ -263,15 +285,30 @@ export async function startClient(options: StartClientOptions = {}): Promise<voi
           return text(`Found ${peers.length} peer(s) (scope: ${scope}):\n\n${peers.map(formatPeer).join("\n\n")}`);
         }
         case "send_message": {
+          const delivery = args.delivery === undefined ? "pull" : String(args.delivery);
+          if (delivery !== "pull" && delivery !== "push") return text(`Invalid delivery: ${delivery} (use "pull" or "push")`, true);
           const r = await broker.post("/send-message", {
             from_id: myId ?? undefined,
             from_name: myName,
             to: String(args.to),
             text: String(args.message),
+            mode: delivery,
           });
           if (!r.ok) return text(`Failed to send: ${r.error}`, true);
           const label = r.to_name ? `${r.to_name} (${r.to_id})` : r.to_id;
-          return text(`Message sent to ${label}. If they run without channel push, they must call check_messages.`);
+          return text(`Message sent to ${label} (delivery: ${delivery}).`);
+        }
+        case "send_ping": {
+          const r = await broker.post("/send-message", {
+            from_id: myId ?? undefined,
+            from_name: myName,
+            to: String(args.to),
+            text: "",
+            mode: "ping",
+          });
+          if (!r.ok) return text(`Failed to send: ${r.error}`, true);
+          const label = r.to_name ? `${r.to_name} (${r.to_id})` : r.to_id;
+          return text(`Ping sent to ${label}.`);
         }
         case "set_name": {
           const newName = String(args.name);
@@ -291,6 +328,10 @@ export async function startClient(options: StartClientOptions = {}): Promise<voi
           await pollBroker(false);
           const buffered = await broker.post("/get-buffered-messages", { id: myId as string });
           for (const m of buffered.messages) {
+            if (m.mode === "ping") {
+              await acknowledge(m.id);
+              continue;
+            }
             if (!localBuffer.some((b) => b.id === m.id)) {
               localBuffer.push({ ...m, from_hostname: "", from_summary: "", from_cwd: "" });
             }
@@ -379,15 +420,41 @@ export async function startClient(options: StartClientOptions = {}): Promise<voi
   }
 
   /**
-   * Pull undelivered messages from the broker into the local buffer.
-   * When `push` is true, deliver each via session socket / channel notification
-   * and acknowledge on success (body=push), or deliver one unread notice and
-   * keep the text unacknowledged (body=pull).
+   * mode=ping: put a one-line ping notice into the session (session socket →
+   * channel). The ping has no text and is acknowledged right away.
+   */
+  async function notifyPing(entry: BufferedMessage) {
+    const who = senderLabel(entry);
+    const notice = `[agent-messenger] ping（from ${who}）`;
+    const useSocket = cfg.delivery === "socket" || (cfg.delivery === "auto" && cfg.sessionSocket);
+    if (useSocket) {
+      try {
+        await postToSession(cfg.sessionSocket, cfg.sessionToken, notice);
+        log(`Session socket ping notice OK from ${who}`);
+        return;
+      } catch (e) {
+        log(`Session socket ping notice FAILED from ${entry.from_id}: ${errorMessage(e)} — trying channel`);
+      }
+    }
+    try {
+      await mcp.notification("notifications/claude/channel", { content: notice, meta: channelMeta(entry) });
+      log(`Channel ping notice OK from ${who}`);
+    } catch (e) {
+      log(`Channel ping notice FAILED from ${entry.from_id}: ${errorMessage(e)}`);
+    }
+  }
+
+  /**
+   * Pull undelivered messages from the broker.
+   * - mode=ping: notice only, acknowledged at once, never buffered.
+   * - otherwise the message goes into the local buffer. When `push` is true,
+   *   mode=push is delivered with its text and acknowledged on success;
+   *   mode=pull (or missing) gets one unread notice and the text stays
+   *   unacknowledged until `check_messages`.
    */
   async function pollBroker(push: boolean) {
     if (!myId) return;
     const result = await broker.post("/poll-messages", { id: myId });
-    const pull = cfg.body === "pull";
     for (const msg of result.messages) {
       const sender = await lookupSender(msg.from_id);
       const entry: BufferedMessage = {
@@ -397,9 +464,14 @@ export async function startClient(options: StartClientOptions = {}): Promise<voi
         from_summary: sender?.summary ?? "",
         from_cwd: sender?.cwd ?? "",
       };
+      if (msg.mode === "ping") {
+        await notifyPing(entry);
+        await acknowledge(msg.id);
+        continue;
+      }
       localBuffer.push(entry);
       if (localBuffer.length > MAX_BUFFER) localBuffer.splice(0, localBuffer.length - MAX_BUFFER);
-      if (!push || pull) continue;
+      if (!push || msg.mode !== "push") continue;
 
       const useSocket = cfg.delivery === "socket" || (cfg.delivery === "auto" && cfg.sessionSocket);
       if (useSocket) {
@@ -437,7 +509,7 @@ export async function startClient(options: StartClientOptions = {}): Promise<voi
         log(`Channel push FAILED from ${entry.from_id}: ${errorMessage(e)}`);
       }
     }
-    if (push && pull) await notifyUnread();
+    if (push) await notifyUnread();
   }
 
   async function pollLoop() {

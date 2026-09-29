@@ -168,12 +168,15 @@ export class BrokerHandlers {
     const resolved = this.resolvePeer(body.to);
     if (resolved.error !== undefined) return { ok: false, error: resolved.error };
     const { peer } = resolved;
+    const mode = body.mode ?? "pull";
+    if (mode !== "pull" && mode !== "push" && mode !== "ping") return { ok: false, error: `invalid mode: ${String(mode)}` };
     const msg: Message = {
       id: this.state.nextMsgId++,
       from_id: body.from_id ?? "cli",
       from_name: body.from_name ?? "",
       to_id: peer.id,
-      text: body.text ?? "",
+      text: mode === "ping" ? "" : (body.text ?? ""),
+      mode,
       sent_at: new Date().toISOString(),
       delivered: 0,
       acknowledged: 0,

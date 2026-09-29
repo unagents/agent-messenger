@@ -1,5 +1,6 @@
 /**
- * Test helpers: spawn the 0.4.x JavaScript broker (repository `legacy/bin/agent-messenger.js broker`)
+ * Test helpers: spawn the TypeScript broker (`packages/broker/dist/main.mjs`; the legacy JavaScript
+ * broker drops the per-message `mode`)
  * and drive the client (node `dist/main.mjs`, or the native binary named by
  * `AGENT_MESSENGER_CLIENT_BIN`) over stdio JSON-RPC without the MCP SDK.
  */
@@ -8,7 +9,7 @@ import type { ChildProcess } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 export const ROOT = fileURLToPath(new URL("../../../", import.meta.url));
-export const BROKER_BIN = `${ROOT}legacy/bin/agent-messenger.js`;
+export const BROKER_BIN = `${ROOT}packages/broker/dist/main.mjs`;
 export const CLIENT_MAIN = fileURLToPath(new URL("../dist/main.mjs", import.meta.url));
 
 /** never let the tests post into a real Claude Code session the runner may be a child of */
@@ -25,7 +26,7 @@ export function baseEnv(): Record<string, string | undefined> {
 export const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 export async function startBroker(env: Record<string, string | undefined>): Promise<ChildProcess> {
-  const p = spawn(process.execPath, [BROKER_BIN, "broker"], { env, stdio: ["ignore", "ignore", "pipe"] });
+  const p = spawn(process.execPath, [BROKER_BIN], { env, stdio: ["ignore", "ignore", "pipe"] });
   p.stderr!.on("data", () => {});
   for (let i = 0; i < 50; i++) {
     try {

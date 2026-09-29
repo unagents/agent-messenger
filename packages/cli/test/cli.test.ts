@@ -273,7 +273,7 @@ describe("status / peers / send / discover (real client package, TypeScript brok
     const r = await runCli(["status"], env);
     expect(r.status, r.stderr).toBe(0);
     expect(r.stderr).toMatch(/installing @agent-hand\/messenger-client@latest/);
-    expect(r.stdout.trim()).toBe(`Broker: ok v0.5.0 id=test-broker (0 peer(s)) at http://127.0.0.1:${broker.port} (via env)`);
+    expect(r.stdout.trim()).toBe(`Broker: ok v0.6.0 id=test-broker (0 peer(s)) at http://127.0.0.1:${broker.port} (via env)`);
   });
 
   it("peers", async () => {

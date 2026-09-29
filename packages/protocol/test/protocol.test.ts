@@ -38,9 +38,7 @@ describe("constants match legacy/src/config.js", () => {
 
   it("env names", () => {
     const legacy = new Set([...envNamesIn("config.js"), ...envNamesIn("server.js")]);
-    // env names added after the legacy implementation (no legacy counterpart)
-    const added = new Set<string>([ENV.BODY]);
-    expect(new Set(Object.values(ENV).filter((v) => !added.has(v)))).toEqual(legacy);
+    expect(new Set(Object.values(ENV))).toEqual(legacy);
   });
 });
 

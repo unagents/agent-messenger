@@ -67,10 +67,13 @@ describe("mcp stdio", () => {
 
     const tools = await c.request<{ tools: unknown[] }>("tools/list");
     expect(tools).toEqual({ tools: TOOLS });
+    expect(INSTRUCTIONS.startsWith(`agent-messenger v${VERSION}\n`)).toBe(true);
+    for (const t of TOOLS) expect(t.description.startsWith(`[agent-messenger v${VERSION}] `)).toBe(true);
     expect((tools.tools as { name: string }[]).map((t) => t.name).sort()).toEqual([
       "check_messages",
       "list_peers",
       "send_message",
+      "send_ping",
       "set_name",
       "set_summary",
     ]);
@@ -110,7 +113,7 @@ describe("mcp stdio", () => {
     const lp = await master.callTool("list_peers", { scope: "all" });
     expect(lp.content[0].text).toMatch(/Name: cap-renamed/);
 
-    const sm = await master.callTool("send_message", { to: "cap-renamed", message: "ping from master" });
+    const sm = await master.callTool("send_message", { to: "cap-renamed", message: "ping from master", delivery: "push" });
     expect(sm.content[0].text).toMatch(/Message sent to cap-renamed/);
 
     await cap.waitFor(() => cap.notifications.length > 0, 4000);
@@ -212,7 +215,7 @@ describe("mcp stdio", () => {
     await cap.initialize();
     const master = await mcpClient("master2");
     await master.initialize();
-    await master.callTool("send_message", { to: "cap-sock", message: "via socket" });
+    await master.callTool("send_message", { to: "cap-sock", message: "via socket", delivery: "push" });
 
     await cap.waitFor(() => lines.length >= 2 && ended, 4000);
     expect(lines.length, "auth line + user line").toBe(2);
@@ -238,7 +241,7 @@ describe("mcp stdio", () => {
     await cap.initialize();
     const master = await mcpClient("master3");
     await master.initialize();
-    await master.callTool("send_message", { to: "cap-nosock", message: "fallback" });
+    await master.callTool("send_message", { to: "cap-nosock", message: "fallback", delivery: "push" });
     await cap.waitFor(() => cap.notifications.length > 0, 4000);
     expect(cap.notifications.length).toBe(1);
     expect((cap.notifications[0].params as { content: string }).content).toBe("fallback");

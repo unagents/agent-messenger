@@ -33,6 +33,8 @@ export interface Peer {
   last_seen: string;
 }
 
+export type MessageMode = "pull" | "push" | "ping";
+
 /** A message as stored and returned by the broker. */
 export interface Message {
   /** Broker-assigned incrementing integer. */
@@ -42,6 +44,12 @@ export interface Message {
   from_name: string;
   to_id: string;
   text: string;
+  /**
+   * How the receiver shows it: `"pull"` = unread notice only, text via
+   * `check_messages`; `"push"` = text shown directly; `"ping"` = liveness
+   * notice, no text. Missing (older broker / sender) means `"pull"`.
+   */
+  mode?: MessageMode;
   /** ISO 8601 timestamp. */
   sent_at: string;
   /** 0 until returned by `/poll-messages`, then 1. */
@@ -143,6 +151,8 @@ export interface SendMessageRequest {
   from_id?: string;
   from_name?: string;
   text?: string;
+  /** Defaults to `"pull"`. Unknown values are rejected. */
+  mode?: MessageMode;
 }
 
 export type SendMessageResponse =

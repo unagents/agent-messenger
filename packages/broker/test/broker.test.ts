@@ -113,6 +113,16 @@ describe("http", () => {
     const afterAck = await post("/get-buffered-messages", { id: a.id });
     expect(afterAck.messages).toHaveLength(0);
 
+    // per-message mode: default pull, push kept, ping drops the text, unknown rejected
+    await post("/send-message", { from_id: b.id, to: "alpha", text: "p" });
+    await post("/send-message", { from_id: b.id, to: "alpha", text: "q", mode: "push" });
+    await post("/send-message", { from_id: b.id, to: "alpha", text: "ignored", mode: "ping" });
+    const bad = await post("/send-message", { from_id: b.id, to: "alpha", text: "x", mode: "loud" });
+    expect(bad).toEqual({ ok: false, error: "invalid mode: loud" });
+    const modes = await post("/poll-messages", { id: a.id });
+    expect(modes.messages.map((m: { mode: string; text: string }) => [m.mode, m.text])).toEqual([["pull", "p"], ["push", "q"], ["ping", ""]]);
+    await post("/acknowledge-messages", { id: a.id, message_ids: modes.messages.map((m: { id: number }) => m.id) });
+
     expect(await post("/set-name", { id: b.id, name: "beta" })).toEqual({ ok: true });
     expect(await post("/set-summary", { id: b.id, summary: "working" })).toEqual({ ok: true });
     const [beta] = (await post("/list-peers", { scope: "host", hostname: "hostB" })) as Peer[];
