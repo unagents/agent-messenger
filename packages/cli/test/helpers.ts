@@ -154,14 +154,18 @@ export function clientStub(root: string, version: string): string {
 }
 
 /** Stub native platform package for this host: a shell script as `bin`. */
-export function nativeStub(root: string, version: string): string {
+export function nativeStub(root: string, version: string, opts: { broken?: boolean } = {}): string {
   const name = `@agent-hand/messenger-client-${process.platform}-${process.arch}`;
+  // broken: fails like a binary needing a newer glibc (message on stderr, exit 1)
+  const script = opts.broken
+    ? "#!/bin/sh\necho \"messenger-client: version GLIBC_2.39 not found\" >&2\nexit 1\n"
+    : `#!/bin/sh\necho "native-client v${version} argv=$*"\n`;
   return makeStub(
     root,
     name,
     version,
     { bin: { "messenger-client": "./messenger-client" } },
-    { "messenger-client": { content: `#!/bin/sh\necho "native-client v${version} argv=$*"\n`, executable: true } }
+    { "messenger-client": { content: script, executable: true } }
   );
 }
 

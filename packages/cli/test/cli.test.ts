@@ -66,7 +66,7 @@ describe("help / version", () => {
     const v = await runCli(["--version"], env);
     expect(v.status).toBe(0);
     expect(v.stdout.trim()).toBe(VERSION);
-    expect(VERSION).toBe("0.5.0");
+    expect(VERSION).toBe("0.6.0");
     const u = await runCli(["nosuchcommand"], env);
     expect(u.status).toBe(1);
     expect(u.stdout).toMatch(/USAGE/);
@@ -197,6 +197,23 @@ describe("mcp: native platform package vs node client", () => {
 
       const native = await runCli(["mcp"], cliEnv(registry, pkgs, { AGENT_MESSENGER_CLIENT: "native" }));
       expect(native.stdout).toMatch(/^native-client v2\.0\.0/m);
+    } finally {
+      registry.unpublish(NATIVE);
+      rmSync(pkgs, { recursive: true, force: true });
+    }
+  });
+
+  it("falls back to node when the native executable cannot run; AGENT_MESSENGER_CLIENT=native still runs it", async () => {
+    registry.publish(nativeStub(stubs, "2.0.0", { broken: true }));
+    const pkgs = tmp("am-cli-pkgs-");
+    try {
+      const r = await runCli(["mcp"], cliEnv(registry, pkgs));
+      expect(r.status, r.stderr).toBe(0);
+      expect(r.stdout).toMatch(/^node-client v2\.0\.0/m);
+      expect(r.stderr).toMatch(new RegExp(`${NATIVE} cannot run on this host \\(.*GLIBC_2\\.39.*\\), using node client`));
+      const f = await runCli(["mcp"], cliEnv(registry, pkgs, { AGENT_MESSENGER_CLIENT: "native" }));
+      expect(f.status).toBe(1);
+      expect(f.stderr).toMatch(/GLIBC_2\.39/);
     } finally {
       registry.unpublish(NATIVE);
       rmSync(pkgs, { recursive: true, force: true });

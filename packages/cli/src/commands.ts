@@ -1,6 +1,7 @@
 /**
  * Sub-command bodies. Output text is the same as `legacy/bin/agent-messenger.js`.
  */
+import { spawnSync } from "node:child_process";
 import type { Peer } from "@agent-hand/messenger-protocol";
 import type { BrokerClientLike, ClientModule } from "./client-module.js";
 import { loadClientModule } from "./client-module.js";
@@ -21,13 +22,21 @@ function nodeClient(cfg: LoaderConfig): InstalledPackage {
  * `mcp`: run the client. Native platform package first
  * (`@agent-hand/messenger-client-<platform>-<arch>`), else the node client;
  * `AGENT_MESSENGER_CLIENT=node|native` forces one flavour.
+ * Without the `native` force, the native executable is first run with
+ * `--version`; when that fails (e.g. a newer glibc is required) the node
+ * client is used instead.
  */
 export async function runMcp(cfg: LoaderConfig): Promise<void> {
   if (cfg.clientMode !== "node") {
     const name = nativeClientName();
     const native = ensurePackage(cfg, name, cfg.clientSpec, { optional: cfg.clientMode !== "native" });
     const bin = native ? resolveBin(native.pkgDir) : null;
-    if (bin) return runChild(bin, []);
+    if (bin) {
+      if (cfg.clientMode === "native") return runChild(bin, []);
+      const failure = probeNative(bin);
+      if (!failure) return runChild(bin, []);
+      console.error(`[agent-messenger loader] ${name} cannot run on this host (${failure}), using node client`);
+    }
     if (cfg.clientMode === "native") {
       console.error(`[agent-messenger loader] ${native ? `${name} has no bin entry` : `${name} is not available`}`);
       process.exit(1);
@@ -36,6 +45,15 @@ export async function runMcp(cfg: LoaderConfig): Promise<void> {
   }
   const client = nodeClient(cfg);
   return runChild(process.execPath, [resolveEntry(client.pkgDir, "./main")]);
+}
+
+/** Run the native client with `--version`; `null` when it works, else a one-line reason. */
+function probeNative(bin: string): string | null {
+  const r = spawnSync(bin, ["--version"], { stdio: ["ignore", "pipe", "pipe"], timeout: 5000, encoding: "utf8" });
+  if (r.error) return r.error.message;
+  if (r.status === 0) return null;
+  const first = `${r.stderr ?? ""}`.trim().split("\n")[0] ?? "";
+  return first || (r.signal ? `signal ${r.signal}` : `exit ${r.status}`);
 }
 
 /** `broker`: run `@agent-hand/messenger-broker/main` (handles SIGINT / SIGTERM → close → exit 0). */
