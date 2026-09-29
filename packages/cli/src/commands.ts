@@ -41,7 +41,7 @@ export async function runMcp(cfg: LoaderConfig): Promise<void> {
       console.error(`[agent-messenger loader] ${native ? `${name} has no bin entry` : `${name} is not available`}`);
       process.exit(1);
     }
-    if (native) console.error(`[agent-messenger loader] ${name} has no bin entry, using node client`);
+    if (native && !bin) console.error(`[agent-messenger loader] ${name} has no bin entry, using node client`);
   }
   const client = nodeClient(cfg);
   return runChild(process.execPath, [resolveEntry(client.pkgDir, "./main")]);

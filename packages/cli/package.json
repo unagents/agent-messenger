@@ -1,6 +1,6 @@
 {
   "name": "@agent-hand/messenger",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "agent-messenger CLI: fetches the broker / client packages from Gitea Packages, caches them and runs them.",
   "type": "module",
   "license": "MIT",

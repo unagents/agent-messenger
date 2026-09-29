@@ -66,7 +66,7 @@ describe("help / version", () => {
     const v = await runCli(["--version"], env);
     expect(v.status).toBe(0);
     expect(v.stdout.trim()).toBe(VERSION);
-    expect(VERSION).toBe("0.6.0");
+    expect(VERSION).toBe("0.6.1");
     const u = await runCli(["nosuchcommand"], env);
     expect(u.status).toBe(1);
     expect(u.stdout).toMatch(/USAGE/);
@@ -210,6 +210,7 @@ describe("mcp: native platform package vs node client", () => {
       const r = await runCli(["mcp"], cliEnv(registry, pkgs));
       expect(r.status, r.stderr).toBe(0);
       expect(r.stdout).toMatch(/^node-client v2\.0\.0/m);
+      expect(r.stderr).not.toMatch(/has no bin entry/);
       expect(r.stderr).toMatch(new RegExp(`${NATIVE} cannot run on this host \\(.*GLIBC_2\\.39.*\\), using node client`));
       const f = await runCli(["mcp"], cliEnv(registry, pkgs, { AGENT_MESSENGER_CLIENT: "native" }));
       expect(f.status).toBe(1);
