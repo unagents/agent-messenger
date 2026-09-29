@@ -1,6 +1,6 @@
 {
   "name": "@agent-hand/messenger-client",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "description": "agent-messenger client: stdio MCP server for one Claude Code session. Node built-in APIs only, zero runtime dependencies.",
   "type": "module",
   "license": "MIT",

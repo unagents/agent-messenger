@@ -5,4 +5,4 @@
  * binary has no file dependency. `test/version.test.ts` checks it matches
  * `package.json`.
  */
-export const VERSION = "0.6.1";
+export const VERSION = "0.6.2";

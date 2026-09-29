@@ -69,6 +69,7 @@ describe("mcp stdio", () => {
     expect(tools).toEqual({ tools: TOOLS });
     expect(INSTRUCTIONS.startsWith(`agent-messenger v${VERSION}\n`)).toBe(true);
     for (const t of TOOLS) expect(t.description.startsWith(`[agent-messenger v${VERSION}] `)).toBe(true);
+    for (const t of TOOLS) expect(t.annotations.title).toBe(`${t.name} (v${VERSION})`);
     expect((tools.tools as { name: string }[]).map((t) => t.name).sort()).toEqual([
       "check_messages",
       "list_peers",

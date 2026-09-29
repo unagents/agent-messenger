@@ -51,7 +51,10 @@ export const CAPABILITIES = {
   tools: {},
 };
 
-/** Every tool description starts with the version so `/mcp` → View tools shows which build is running. */
+/**
+ * Every tool carries the version: `annotations.title` (`<name> (v<VERSION>)`) is what the
+ * `/mcp` → View tools list shows, and the description starts with it too.
+ */
 export const TOOLS = [
   {
     name: "list_peers",
@@ -122,7 +125,11 @@ export const TOOLS = [
       "Read and acknowledge unread messages from other sessions (the text behind an unread notice). Safe to call any time.",
     inputSchema: { type: "object", properties: {} },
   },
-].map((t) => ({ ...t, description: `[agent-messenger v${VERSION}] ${t.description}` }));
+].map((t) => ({
+  ...t,
+  description: `[agent-messenger v${VERSION}] ${t.description}`,
+  annotations: { title: `${t.name} (v${VERSION})` },
+}));
 
 const MAX_BUFFER = 200;
 
