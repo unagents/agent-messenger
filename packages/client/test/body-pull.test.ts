@@ -51,8 +51,12 @@ beforeAll(async () => {
   broker = await startBroker(env);
 });
 
-afterAll(() => {
-  broker.kill("SIGTERM");
+afterAll(async () => {
+  // wait for the broker to flush its state file before removing the directory
+  await new Promise<void>((r) => {
+    broker.once("exit", () => r());
+    broker.kill("SIGTERM");
+  });
   rmSync(dir, { recursive: true, force: true });
 });
 
