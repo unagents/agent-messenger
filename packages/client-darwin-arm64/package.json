@@ -1,6 +1,6 @@
 {
   "name": "@agent-hand/messenger-client-darwin-arm64",
-  "version": "0.6.2",
+  "version": "0.6.3",
   "description": "agent-messenger client, native darwin-arm64 build (PerryTS). Selected by @agent-hand/messenger over the node client when installable.",
   "license": "MIT",
   "repository": {
