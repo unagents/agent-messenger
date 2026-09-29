@@ -153,10 +153,12 @@ describe("delivery=pull (default) and send_ping", () => {
     const cm = await cap.callTool("check_messages", {});
     expect(cm.content[0].text).toMatch(/No new messages/);
 
-    // a second ping gives a second notice
-    await worker.callTool("send_ping", { to: "cap-ping" });
+    // a second ping with a subject shows it in the notice
+    await worker.callTool("send_ping", { to: "cap-ping", subject: "task-42 crawl" });
     await cap.waitFor(() => users().length >= 2, 5000);
-    expect(users()[1]).toBe(`[agent-messenger] ping（from worker-ping@${hostname()}）`);
+    expect(users()[1]).toBe(`[agent-messenger] ping（from worker-ping@${hostname()}）: task-42 crawl`);
+    const cm2 = await cap.callTool("check_messages", {});
+    expect(cm2.content[0].text).toMatch(/No new messages/);
 
     const bad = await worker.callTool("send_ping", { to: "nobody" });
     expect(bad.isError).toBe(true);

@@ -175,7 +175,7 @@ export class BrokerHandlers {
       from_id: body.from_id ?? "cli",
       from_name: body.from_name ?? "",
       to_id: peer.id,
-      text: mode === "ping" ? "" : (body.text ?? ""),
+      text: body.text ?? "",
       mode,
       sent_at: new Date().toISOString(),
       delivered: 0,

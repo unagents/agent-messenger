@@ -1,6 +1,6 @@
 {
   "name": "@agent-hand/messenger-client-linux-x64",
-  "version": "0.6.2",
+  "version": "0.6.3",
   "description": "agent-messenger client, native linux-x64 build (PerryTS). Selected by @agent-hand/messenger over the node client when installable.",
   "license": "MIT",
   "repository": {

@@ -47,7 +47,7 @@ export interface Message {
   /**
    * How the receiver shows it: `"pull"` = unread notice only, text via
    * `check_messages`; `"push"` = text shown directly; `"ping"` = liveness
-   * notice, no text. Missing (older broker / sender) means `"pull"`.
+   * notice; `text` is its optional subject (e.g. a task id), `""` when none. Missing (older broker / sender) means `"pull"`.
    */
   mode?: MessageMode;
   /** ISO 8601 timestamp. */
