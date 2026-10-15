@@ -4,6 +4,7 @@ import { hostname as osHostname } from "node:os";
 import type { Message, Peer } from "@agent-hand/messenger-protocol";
 import { createBrokerClient } from "./broker.js";
 import type { BrokerClient } from "./broker.js";
+import { FALLBACK_ENV, RESOLVE_RETRY_MS } from "./constants.js";
 import { loadConfig } from "./config.js";
 import type { ClientConfig, Env } from "./config.js";
 import { createStdioServer } from "./mcp.js";
@@ -211,7 +212,8 @@ async function ensureBroker(cfg: ClientConfig, env: Env, broker: BrokerClient, r
   const proc = spawn(cmd, args, {
     stdio: ["ignore", out, out],
     detached: true,
-    env: { ...env, AGENT_MESSENGER_PORT: new URL(broker.getUrl()).port },
+    // FALLBACK_ENV: this broker is a stop-gap; it hands over to a real broker once one shows up and exits
+    env: { ...env, AGENT_MESSENGER_PORT: new URL(broker.getUrl()).port, [FALLBACK_ENV]: "1" },
   });
   proc.unref();
   for (let i = 0; i < 30; i++) {
@@ -525,12 +527,64 @@ export async function startClient(options: StartClientOptions = {}): Promise<voi
     if (push) await notifyUnread();
   }
 
+  // --- Link health + re-resolve ---
+  //
+  // A failed poll / heartbeat starts a grace period in which the previous URL keeps being retried (the
+  // poll loop does that every second), so a flapping broker does not push the session into a local
+  // fallback. When the grace is over the full resolution (env → config → discovery → local) runs again.
+  // A heartbeat the broker rejects (it forgot us) re-runs the resolution at once.
+  let failSince: number | null = null;
+  let lastResolveAttempt = 0;
+  let resolving = false;
+
+  function noteFailure() {
+    if (failSince !== null) return;
+    failSince = Date.now();
+    log(`Broker ${broker.getUrl()} unreachable — retrying it for ${cfg.graceMs} ms before re-resolving`);
+  }
+
+  function noteOk() {
+    if (failSince === null) return;
+    failSince = null;
+    log(`Broker ${broker.getUrl()} reachable again`);
+  }
+
+  async function reresolve(reason: string) {
+    if (resolving) return;
+    resolving = true;
+    lastResolveAttempt = Date.now();
+    try {
+      const prev = broker.getUrl();
+      log(`Re-resolving broker (${reason})`);
+      const r = await resolveBroker(cfg, broker, log);
+      await ensureBroker(cfg, env, broker, r, log);
+      await register();
+      log(`broker=${broker.getUrl()} (${r.isLocal ? "local" : "remote"}, via ${r.source})${prev === broker.getUrl() ? "" : ` — was ${prev}`}`);
+      failSince = null;
+    } catch (e) {
+      log(`Re-resolve failed: ${errorMessage(e)}`);
+      noteFailure(); // keeps the recover loop retrying
+    } finally {
+      resolving = false;
+    }
+  }
+
   async function pollLoop() {
+    if (resolving) return;
     try {
       await pollBroker(true);
+      noteOk();
     } catch (e) {
       log(`Poll error: ${errorMessage(e)}`);
+      noteFailure();
     }
+  }
+
+  async function recoverLoop() {
+    if (failSince === null || resolving) return;
+    const now = Date.now();
+    if (now - failSince < cfg.graceMs || now - lastResolveAttempt < RESOLVE_RETRY_MS) return;
+    await reresolve("connection failure");
   }
 
   // --- Run ---
@@ -541,15 +595,20 @@ export async function startClient(options: StartClientOptions = {}): Promise<voi
   const pollTimer = setInterval(pollLoop, cfg.pollIntervalMs);
   // Heartbeat; if the broker no longer knows us (restart, stale cleanup), re-register
   // so the session keeps its name and stays reachable without a Claude Code restart.
+  const recoverTimer = setInterval(recoverLoop, cfg.pollIntervalMs);
   const heartbeatTimer = setInterval(async () => {
+    if (resolving) return;
     try {
       const r = await broker.post("/heartbeat", { id: myId as string });
       if (r && r.ok === false) {
         log(`Heartbeat rejected (${r.error}) — re-registering`);
-        await register();
+        await reresolve("heartbeat rejected");
+      } else {
+        noteOk();
       }
     } catch {
-      // broker down; try again next tick
+      // broker down; the grace period / re-resolve picks it up
+      noteFailure();
     }
   }, cfg.heartbeatIntervalMs);
 
@@ -559,6 +618,7 @@ export async function startClient(options: StartClientOptions = {}): Promise<voi
     cleaningUp = true;
     clearInterval(pollTimer);
     clearInterval(heartbeatTimer);
+    clearInterval(recoverTimer);
     try {
       await broker.post("/unregister", { id: myId as string });
       log("Unregistered from broker");

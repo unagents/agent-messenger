@@ -9,8 +9,8 @@ import {
   type App,
   type H3Event,
 } from "h3";
-import type { BrokerErrorResponse, BrokerPostRoute, HealthResponse } from "@agent-hand/messenger-protocol";
-import { BROKER_POST_ROUTES, HEALTH_ROUTE } from "@agent-hand/messenger-protocol";
+import type { BrokerErrorResponse, BrokerPostRoute, HealthResponse, RelayMessagesRequest } from "@agent-hand/messenger-protocol";
+import { BROKER_POST_ROUTES, HEALTH_ROUTE, RELAY_ROUTE } from "@agent-hand/messenger-protocol";
 import type { BrokerHandlers } from "./handlers.js";
 
 export interface HttpAppOptions {
@@ -20,6 +20,8 @@ export interface HttpAppOptions {
   /** Reported in `/health`; the port the server actually listens on. */
   port: () => number;
   token: string;
+  /** Reported in `/health` (as `fallback: true`) when the broker is a local fallback. */
+  fallback?: boolean;
 }
 
 /**
@@ -41,20 +43,22 @@ export function createBrokerApp(opts: HttpAppOptions): App {
     id: opts.id,
     port: opts.port(),
     peers: opts.handlers.alivePeerCount(),
+    ...(opts.fallback ? { fallback: true as const } : {}),
   })));
 
-  for (const route of BROKER_POST_ROUTES) {
+  const post = (route: string, run: (body: unknown) => unknown) =>
     router.post(route, defineEventHandler(async (event) => {
       if (!authorized(event, opts.token)) return unauthorized(event);
       try {
-        const body = await readJson(event);
-        return routes[route as BrokerPostRoute](body as never);
+        return run(await readJson(event));
       } catch (e) {
         setResponseStatus(event, 500);
         return { error: (e as Error).message } satisfies BrokerErrorResponse;
       }
     }));
-  }
+
+  for (const route of BROKER_POST_ROUTES) post(route, (body) => routes[route as BrokerPostRoute](body as never));
+  post(RELAY_ROUTE, (body) => opts.handlers.relayMessages(body as RelayMessagesRequest));
 
   const app = createApp();
   app.use(router);

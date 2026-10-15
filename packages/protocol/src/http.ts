@@ -81,6 +81,8 @@ export interface HealthResponse {
   port: number;
   /** Count of peers seen within `HEARTBEAT_TIMEOUT_MS`. */
   peers: number;
+  /** Present (`true`) only when the broker was started as a local fallback (`AGENT_MESSENGER_FALLBACK=1`). */
+  fallback?: true;
 }
 
 // --- POST /register ---
@@ -197,6 +199,36 @@ export interface UnregisterRequest {
 }
 
 export type UnregisterResponse = { ok: true };
+
+// --- POST /relay-messages (fallback broker -> permanent broker; not part of the legacy route table) ---
+
+/** One undelivered message handed over by a fallback broker. The recipient is addressed by name: peer ids are broker-local. */
+export interface RelayedMessage {
+  from_id: string;
+  from_name: string;
+  /** Recipient peer name on the sending broker. Items without a name cannot be relayed. */
+  to_name: string;
+  /** Recipient hostname on the sending broker; narrows ambiguous names. */
+  to_hostname?: string;
+  text: string;
+  mode?: MessageMode;
+  sent_at: string;
+}
+
+export interface RelayMessagesRequest {
+  messages: RelayedMessage[];
+}
+
+/** `delivered` = queued for a registered peer, `queued` = held until a peer of that name registers, `dropped` = no usable name. */
+export interface RelayMessagesResponse {
+  ok: true;
+  delivered: number;
+  queued: number;
+  dropped: number;
+}
+
+/** Extra POST route served by the TypeScript broker. Not in `BROKER_POST_ROUTES` (that table mirrors the legacy broker). */
+export const RELAY_ROUTE = "/relay-messages" as const;
 
 // --- Route table ---
 

@@ -16,6 +16,9 @@ import type {
   PollMessagesResponse,
   RegisterRequest,
   RegisterResponse,
+  RelayedMessage,
+  RelayMessagesRequest,
+  RelayMessagesResponse,
   SendMessageRequest,
   SendMessageResponse,
   SetNameRequest,
@@ -28,6 +31,9 @@ import type {
 import { HEARTBEAT_TIMEOUT_MS } from "@agent-hand/messenger-protocol";
 import { log } from "./log.js";
 import type { BrokerState } from "./state.js";
+
+/** A relayed message nobody claims within this time is dropped. */
+const PENDING_RELAY_TTL_MS = 60 * 60 * 1000;
 
 /** Route handlers over a `BrokerState`. Logic is transcribed 1:1 from `legacy/src/broker.js`. */
 export class BrokerHandlers {
@@ -61,6 +67,13 @@ export class BrokerHandlers {
     }
     if (removed) {
       log.info(`Cleaned ${removed} stale peer(s)`);
+      this.state.scheduleSave();
+    }
+    const expiry = new Date(Date.now() - PENDING_RELAY_TTL_MS).toISOString();
+    const kept = this.state.pending.filter((r) => r.queued_at >= expiry);
+    if (kept.length !== this.state.pending.length) {
+      log.info(`Dropped ${this.state.pending.length - kept.length} expired relayed message(s)`);
+      this.state.pending = kept;
       this.state.scheduleSave();
     }
   }
@@ -113,6 +126,7 @@ export class BrokerHandlers {
       registered_at: now,
       last_seen: now,
     });
+    this.deliverPending(this.state.peers.get(id)!);
     this.state.scheduleSave();
     return { id };
   }
@@ -137,6 +151,7 @@ export class BrokerHandlers {
     const p = this.state.peers.get(body.id);
     if (!p) return { ok: false, error: "unknown peer" };
     p.name = body.name ?? "";
+    this.deliverPending(p);
     this.state.scheduleSave();
     return { ok: true };
   }
@@ -214,6 +229,62 @@ export class BrokerHandlers {
     this.removePeer(body.id);
     this.state.scheduleSave();
     return { ok: true };
+  }
+
+  // --- relay from a fallback broker ---
+
+  /** Queue a message for `peerId` exactly like `sendMessage` does. */
+  private enqueue(peerId: string, m: RelayedMessage): void {
+    this.state.messages.push({
+      id: this.state.nextMsgId++,
+      from_id: m.from_id,
+      from_name: m.from_name,
+      to_id: peerId,
+      text: m.text,
+      mode: m.mode ?? "pull",
+      sent_at: m.sent_at,
+      delivered: 0,
+      acknowledged: 0,
+    });
+  }
+
+  /** Give `peer` the relayed messages that were waiting for its name. */
+  private deliverPending(peer: Peer): void {
+    if (!peer.name || this.state.pending.length === 0) return;
+    const mine = (r: RelayedMessage) => r.to_name === peer.name && (!r.to_hostname || r.to_hostname === peer.hostname);
+    const hits = this.state.pending.filter(mine);
+    if (hits.length === 0) return;
+    for (const r of hits) this.enqueue(peer.id, r);
+    this.state.pending = this.state.pending.filter((r) => !mine(r));
+    log.info(`Delivered ${hits.length} relayed message(s) to ${peer.name} (${peer.id})`);
+  }
+
+  /**
+   * `/relay-messages`: undelivered messages of a fallback broker. Peer ids are broker-local, so the
+   * recipient is addressed by name (and hostname). A recipient that is not registered yet (its client
+   * moves over only after the fallback exits) gets the message when it registers.
+   */
+  relayMessages(body: RelayMessagesRequest): RelayMessagesResponse {
+    const res: RelayMessagesResponse = { ok: true, delivered: 0, queued: 0, dropped: 0 };
+    const cutoff = BrokerHandlers.cutoff();
+    for (const m of body.messages ?? []) {
+      if (!m.to_name) {
+        res.dropped++;
+        continue;
+      }
+      let cands = [...this.state.peers.values()].filter((p) => p.name === m.to_name && BrokerHandlers.isAlive(p, cutoff));
+      if (m.to_hostname && cands.some((p) => p.hostname === m.to_hostname)) cands = cands.filter((p) => p.hostname === m.to_hostname);
+      if (cands.length === 1) {
+        this.enqueue(cands[0]!.id, m);
+        res.delivered++;
+      } else {
+        this.state.pending.push({ ...m, queued_at: new Date().toISOString() });
+        res.queued++;
+      }
+    }
+    this.state.scheduleSave();
+    log.info(`Relay: ${res.delivered} delivered, ${res.queued} queued, ${res.dropped} dropped`);
+    return res;
   }
 
   /** Route table in `BROKER_POST_ROUTES` order. */

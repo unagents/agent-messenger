@@ -6,12 +6,13 @@ import { resolveConfig, type BrokerOptions } from "./config.js";
 import { BrokerState } from "./state.js";
 import { BrokerHandlers } from "./handlers.js";
 import { createBrokerApp } from "./http.js";
-import { startDiscoveryResponder } from "./discovery.js";
+import { localAddresses, probeBrokers, startDiscoveryResponder } from "./discovery.js";
+import { relayUndelivered } from "./relay.js";
 import { log } from "./log.js";
 import pkg from "../package.json" with { type: "json" };
 
 export type { BrokerOptions, BrokerConfig } from "./config.js";
-export { configFromEnv, resolveConfig, DEFAULT_STATE_FILE, STATE_DIR } from "./config.js";
+export { configFromEnv, resolveConfig, DEFAULT_STATE_FILE, STATE_DIR, FALLBACK_ENV, FALLBACK_INTERVAL_ENV } from "./config.js";
 export type { BrokerStateFile } from "./state.js";
 
 /** Package version, reported by `/health` and discovery replies (inlined at build time). */
@@ -38,7 +39,8 @@ export interface BrokerHandle {
  * (`src/main.ts` does that for the standalone entry).
  */
 export async function startBroker(options: BrokerOptions = {}): Promise<BrokerHandle> {
-  const cfg = resolveConfig(options);
+  const { onSupersede, ...rest } = options;
+  const cfg = resolveConfig(rest);
 
   const state = new BrokerState(cfg.stateFile);
   state.load();
@@ -54,6 +56,7 @@ export async function startBroker(options: BrokerOptions = {}): Promise<BrokerHa
     id: cfg.id,
     port: () => port,
     token: cfg.token,
+    fallback: cfg.fallback,
   });
 
   let listener: Listener;
@@ -73,26 +76,57 @@ export async function startBroker(options: BrokerOptions = {}): Promise<BrokerHa
   }
   port = listener.address.port;
 
-  const reply = (): DiscoveryReply => ({ [DISCOVERY_KEY]: DISCOVERY_REPLY_VALUE, id: cfg.id, port, version: VERSION });
+  const reply = (): DiscoveryReply => ({ [DISCOVERY_KEY]: DISCOVERY_REPLY_VALUE, id: cfg.id, port, version: VERSION, ...(cfg.fallback ? { fallback: true as const } : {}) });
   let disco: Socket | null = null;
   if (cfg.discovery) {
     disco = await startDiscoveryResponder({ port: cfg.discoveryPort, addr: cfg.discoveryAddr, reply });
   }
 
   log.info(`v${VERSION} id=${cfg.id} listening on ${cfg.bind}:${port} (state: ${cfg.stateFile})`);
+  if (cfg.fallback) log.info(`FALLBACK mode: looking for another broker every ${cfg.fallbackIntervalMs} ms (discovery ${cfg.discovery ? "on" : "off"})`);
   log.info(cfg.token ? "token auth enabled" : "WARNING: no AGENT_MESSENGER_TOKEN set — broker is open");
 
   let closed = false;
+  let fallbackTimer: NodeJS.Timeout | null = null;
   const close = async (): Promise<void> => {
     if (closed) return;
     closed = true;
     clearInterval(cleaner);
+    if (fallbackTimer) clearInterval(fallbackTimer);
     if (disco) {
       await new Promise<void>((resolve) => disco!.close(() => resolve()));
     }
     await listener.close();
     if (state.savePending) state.saveNow();
   };
+
+  // A fallback broker exists only until a real broker shows up: relay what it holds, then leave.
+  // Clients notice the exit and re-resolve (client side), so nothing has to push them out.
+  if (cfg.fallback && cfg.discovery) {
+    const mine = localAddresses();
+    let busy = false;
+    const lookForBroker = async (): Promise<void> => {
+      if (busy || closed) return;
+      busy = true;
+      try {
+        const found = await probeBrokers({ port: cfg.discoveryPort, addr: cfg.discoveryAddr, timeoutMs: 1000 });
+        // not ourselves (our own responder answers too) and not another fallback (two fallbacks must not relay into each other)
+        const other = found.find((b) => !b.fallback && !(b.port === port && mine.has(b.host)));
+        if (!other || closed) return;
+        log.info(`fallback: found broker ${other.id} at ${other.url} — relaying messages and exiting`);
+        await relayUndelivered(state, other.url, cfg.token);
+        await close();
+        log.info("fallback: done");
+        onSupersede?.(other.url);
+      } catch (e) {
+        log.warn(`fallback: ${(e as Error).message} — will retry`);
+      } finally {
+        busy = false;
+      }
+    };
+    fallbackTimer = setInterval(() => void lookForBroker(), cfg.fallbackIntervalMs);
+    fallbackTimer.unref();
+  }
 
   return { close, port, id: cfg.id };
 }

@@ -49,6 +49,19 @@ export const ENV = {
 export const BROKER_CMD_ENV = "AGENT_MESSENGER_BROKER_CMD";
 export const DEFAULT_BROKER_CMD = "npx -y @agent-hand/messenger broker";
 
+/**
+ * Fallback / re-resolve settings. Client-only, not in the protocol ENV table (that table mirrors legacy).
+ * `FALLBACK_ENV` is what the client sets on a broker it spawns, so the broker knows it is a local fallback.
+ */
+export const FALLBACK_ENV = "AGENT_MESSENGER_FALLBACK";
+export const GRACE_MS_ENV = "AGENT_MESSENGER_GRACE_MS";
+
+/** How long the previous broker URL is retried after a failure before the client re-resolves. */
+export const DEFAULT_GRACE_MS = 30000;
+
+/** Minimum spacing of re-resolve attempts once the grace period is over. */
+export const RESOLVE_RETRY_MS = 5000;
+
 /** Session inbox socket env names. */
 export const SESSION_SOCKET_ENV = "CLAUDE_CODE_MESSAGING_SOCKET";
 export const SESSION_TOKEN_ENV = "CLAUDE_CODE_MESSAGING_TOKEN";
