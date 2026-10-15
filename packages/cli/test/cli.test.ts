@@ -66,7 +66,7 @@ describe("help / version", () => {
     const v = await runCli(["--version"], env);
     expect(v.status).toBe(0);
     expect(v.stdout.trim()).toBe(VERSION);
-    expect(VERSION).toBe("0.6.1");
+    expect(VERSION).toBe("0.7.0");
     const u = await runCli(["nosuchcommand"], env);
     expect(u.status).toBe(1);
     expect(u.stdout).toMatch(/USAGE/);
@@ -291,7 +291,7 @@ describe("status / peers / send / discover (real client package, TypeScript brok
     const r = await runCli(["status"], env);
     expect(r.status, r.stderr).toBe(0);
     expect(r.stderr).toMatch(/installing @agent-hand\/messenger-client@latest/);
-    expect(r.stdout.trim()).toBe(`Broker: ok v0.6.1 id=test-broker (0 peer(s)) at http://127.0.0.1:${broker.port} (via env)`);
+    expect(r.stdout.trim()).toBe(`Broker: ok v0.7.0 id=test-broker (0 peer(s)) at http://127.0.0.1:${broker.port} (via env)`);
   });
 
   it("peers", async () => {
