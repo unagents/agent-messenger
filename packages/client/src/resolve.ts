@@ -21,6 +21,8 @@ export interface DiscoveredBroker {
   port: number;
   id: string;
   version: string;
+  /** The broker is a local fallback (it will hand over to a real broker and exit). */
+  fallback: boolean;
 }
 
 export type Logger = (msg: string) => void;
@@ -59,6 +61,7 @@ export async function resolveBroker(cfg: ClientConfig, broker: BrokerClient, log
   if (cfg.discoveryEnabled) {
     const found = await discoverBrokers(cfg);
     if (found.length) {
+      // a real broker beats a fallback; discoverBrokers sorts them first
       const b = found[0];
       return done({ url: b.url, host: b.host, source: `discovery (${b.id})`, isLocal: isLocalHost(b.host) });
     }
@@ -139,7 +142,7 @@ export function discoverBrokers(cfg: ClientConfig, timeoutMs = cfg.discoveryTime
       } catch {
         // already closed
       }
-      resolve([...found.values()]);
+      resolve([...found.values()].sort((a, b) => Number(a.fallback) - Number(b.fallback)));
     };
     const timer = setTimeout(finish, timeoutMs);
     sock.on("error", finish);
@@ -149,7 +152,9 @@ export function discoverBrokers(cfg: ClientConfig, timeoutMs = cfg.discoveryTime
         if (m[DISCOVERY_KEY] !== DISCOVERY_REPLY_VALUE || !m.port) return;
         const host = rinfo.address;
         const url = `http://${host}:${m.port}`;
-        if (!found.has(url)) found.set(url, { url, host, port: m.port, id: m.id ?? host, version: m.version ?? "" });
+        if (!found.has(url)) {
+          found.set(url, { url, host, port: m.port, id: m.id ?? host, version: m.version ?? "", fallback: m.fallback === true });
+        }
       } catch {
         // not ours
       }

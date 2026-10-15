@@ -6,7 +6,10 @@
 import { startBroker } from "./index.js";
 import { log } from "./log.js";
 
-const broker = await startBroker();
+const broker = await startBroker({
+  // fallback only: messages are relayed and the broker is closed, nothing left to do
+  onSupersede: () => process.exit(0),
+});
 
 const shutdown = () => {
   log.info("shutting down");

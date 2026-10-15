@@ -25,9 +25,24 @@ export interface BrokerOptions {
   discoveryPort?: number;
   /** UDP bind address when pinned (`AGENT_MESSENGER_DISCOVERY_ADDR`, default `""` = all interfaces). */
   discoveryAddr?: string;
+  /**
+   * Run as a local fallback broker (`AGENT_MESSENGER_FALLBACK=1`, set by the client when it spawns one).
+   * A fallback probes for other brokers every `fallbackIntervalMs`; when it finds one it relays its
+   * undelivered messages there and exits. A permanent broker (default) never does this.
+   */
+  fallback?: boolean;
+  /** Fallback discovery interval in ms (`AGENT_MESSENGER_FALLBACK_INTERVAL_MS`, default 10000). */
+  fallbackIntervalMs?: number;
+  /** Called after a fallback broker has relayed its messages and closed itself (`main.ts` exits the process). */
+  onSupersede?: (url: string) => void;
 }
 
-export type BrokerConfig = Required<BrokerOptions>;
+export type BrokerConfig = Required<Omit<BrokerOptions, "onSupersede">> & Pick<BrokerOptions, "onSupersede">;
+
+/** Marks a broker as a local fallback. Broker-private (not in the protocol ENV table, which mirrors legacy). */
+export const FALLBACK_ENV = "AGENT_MESSENGER_FALLBACK";
+export const FALLBACK_INTERVAL_ENV = "AGENT_MESSENGER_FALLBACK_INTERVAL_MS";
+export const DEFAULT_FALLBACK_INTERVAL_MS = 10_000;
 
 /** Directory of the default state file (`~/.agent-messenger`). Not exported by protocol. */
 export const STATE_DIR = join(homedir(), ".agent-messenger");
@@ -46,6 +61,8 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): BrokerConfi
     discovery: (env[ENV.DISCOVERY] ?? "on").toLowerCase() !== "off",
     discoveryPort: parseInt(env[ENV.DISCOVERY_PORT] ?? String(DEFAULT_DISCOVERY_PORT), 10),
     discoveryAddr: env[ENV.DISCOVERY_ADDR] ?? "",
+    fallback: ["1", "true", "on", "yes"].includes((env[FALLBACK_ENV] ?? "").toLowerCase()),
+    fallbackIntervalMs: parseInt(env[FALLBACK_INTERVAL_ENV] ?? String(DEFAULT_FALLBACK_INTERVAL_MS), 10),
   };
 }
 

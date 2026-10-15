@@ -1,6 +1,6 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import type { Message, Peer } from "@agent-hand/messenger-protocol";
+import type { Message, Peer, RelayedMessage } from "@agent-hand/messenger-protocol";
 import { log } from "./log.js";
 
 /**
@@ -11,6 +11,14 @@ export interface BrokerStateFile {
   peers: Peer[];
   messages: Message[];
   nextMsgId: number;
+  /** Relayed messages waiting for their recipient to register (absent in files written before the fallback relay). */
+  pending?: PendingRelay[];
+}
+
+/** A message relayed from a fallback broker whose recipient has not registered here yet. */
+export interface PendingRelay extends RelayedMessage {
+  /** ISO 8601; pending items older than the TTL are dropped. */
+  queued_at: string;
 }
 
 /**
@@ -24,6 +32,7 @@ export class BrokerState {
   readonly peers = new Map<string, Peer>();
   messages: Message[] = [];
   nextMsgId = 1;
+  pending: PendingRelay[] = [];
 
   private saveTimer: NodeJS.Timeout | null = null;
 
@@ -36,6 +45,7 @@ export class BrokerState {
       for (const p of raw.peers ?? []) this.peers.set(p.id, p);
       this.messages = raw.messages ?? [];
       this.nextMsgId = raw.nextMsgId ?? 1;
+      this.pending = raw.pending ?? [];
       log.info(`Loaded state from ${this.file} (${this.peers.size} peer(s), ${this.messages.length} message(s))`);
     } catch {
       // no state yet
@@ -64,6 +74,7 @@ export class BrokerState {
         peers: [...this.peers.values()],
         messages: this.messages,
         nextMsgId: this.nextMsgId,
+        ...(this.pending.length ? { pending: this.pending } : {}),
       };
       writeFileSync(tmp, JSON.stringify(snapshot, null, 1));
       renameSync(tmp, this.file);

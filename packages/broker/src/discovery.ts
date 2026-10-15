@@ -1,5 +1,6 @@
 import { createSocket, type Socket } from "node:dgram";
-import { DISCOVERY_KEY, DISCOVERY_PROBE_VALUE, type DiscoveryReply } from "@agent-hand/messenger-protocol";
+import { networkInterfaces } from "node:os";
+import { DISCOVERY_KEY, DISCOVERY_PROBE_VALUE, DISCOVERY_REPLY_VALUE, type DiscoveryReply } from "@agent-hand/messenger-protocol";
 import { log } from "./log.js";
 
 export interface DiscoveryResponderOptions {
@@ -39,6 +40,82 @@ export function startDiscoveryResponder(opts: DiscoveryResponderOptions): Promis
       }
       log.info(`discovery responder on udp ${bindAddr}:${opts.port} (id: ${opts.reply().id})`);
       resolve(disco);
+    });
+  });
+}
+
+export interface FoundBroker {
+  url: string;
+  host: string;
+  port: number;
+  id: string;
+  version: string;
+  fallback: boolean;
+}
+
+/** Probe targets: the pinned address, else 255.255.255.255 plus every IPv4 interface's directed broadcast (as the client does). */
+function probeTargets(addr: string): string[] {
+  if (addr) return [addr];
+  const targets = new Set<string>(["255.255.255.255"]);
+  for (const list of Object.values(networkInterfaces())) {
+    for (const i of list ?? []) {
+      if (i.family !== "IPv4" || i.internal || !i.netmask) continue;
+      const ip = i.address.split(".").map(Number);
+      const mask = i.netmask.split(".").map(Number);
+      targets.add(ip.map((o, k) => (o & mask[k]!) | (~mask[k]! & 255)).join("."));
+    }
+  }
+  return [...targets];
+}
+
+/** Every IPv4 address of this host (plus loopback); a reply from one of these with our own port is us. */
+export function localAddresses(): Set<string> {
+  const out = new Set<string>(["127.0.0.1"]);
+  for (const list of Object.values(networkInterfaces())) {
+    for (const i of list ?? []) if (i.family === "IPv4") out.add(i.address);
+  }
+  return out;
+}
+
+/** Send one UDP probe and collect broker answers for `timeoutMs` (the broker-side twin of the client's `discoverBrokers`). */
+export function probeBrokers(opts: { port: number; addr: string; timeoutMs: number }): Promise<FoundBroker[]> {
+  return new Promise((resolve) => {
+    const sock = createSocket({ type: "udp4" });
+    const found = new Map<string, FoundBroker>();
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      try {
+        sock.close();
+      } catch {
+        // already closed
+      }
+      resolve([...found.values()]);
+    };
+    const timer = setTimeout(finish, opts.timeoutMs);
+    sock.on("error", finish);
+    sock.on("message", (msg, rinfo) => {
+      try {
+        const m = JSON.parse(msg.toString()) as Partial<DiscoveryReply>;
+        if (m[DISCOVERY_KEY] !== DISCOVERY_REPLY_VALUE || !m.port) return;
+        const url = `http://${rinfo.address}:${m.port}`;
+        if (!found.has(url)) {
+          found.set(url, { url, host: rinfo.address, port: m.port, id: m.id ?? rinfo.address, version: m.version ?? "", fallback: m.fallback === true });
+        }
+      } catch {
+        // not ours
+      }
+    });
+    sock.bind(0, () => {
+      try {
+        sock.setBroadcast(true);
+      } catch {
+        // directed sends still work
+      }
+      const probe = Buffer.from(JSON.stringify({ [DISCOVERY_KEY]: DISCOVERY_PROBE_VALUE }));
+      for (const t of probeTargets(opts.addr)) sock.send(probe, opts.port, t, () => {});
     });
   });
 }

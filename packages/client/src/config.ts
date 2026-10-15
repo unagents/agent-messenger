@@ -5,8 +5,10 @@ import {
   DEFAULT_BROKER_CMD,
   DEFAULT_DISCOVERY_PORT,
   DEFAULT_DISCOVERY_TIMEOUT_MS,
+  DEFAULT_GRACE_MS,
   DEFAULT_HTTP_PORT,
   ENV,
+  GRACE_MS_ENV,
   HEARTBEAT_INTERVAL_MS,
   LOCAL_HOSTS,
   POLL_INTERVAL_MS,
@@ -36,6 +38,8 @@ export interface ClientConfig {
   discoveryAddr: string;
   discoveryTimeoutMs: number;
   heartbeatIntervalMs: number;
+  /** Time the previous broker URL is retried after a failure before re-resolving (`AGENT_MESSENGER_GRACE_MS`, default 30000). */
+  graceMs: number;
   pollIntervalMs: number;
   sessionSocket: string;
   sessionToken: string;
@@ -58,6 +62,7 @@ export function loadConfig(env: Env): ClientConfig {
     discoveryAddr: env[ENV.DISCOVERY_ADDR] ?? "",
     discoveryTimeoutMs: parseInt(env[ENV.DISCOVERY_TIMEOUT_MS] ?? String(DEFAULT_DISCOVERY_TIMEOUT_MS), 10),
     heartbeatIntervalMs: parseInt(env[ENV.HEARTBEAT_MS] ?? String(HEARTBEAT_INTERVAL_MS), 10),
+    graceMs: parseInt(env[GRACE_MS_ENV] ?? String(DEFAULT_GRACE_MS), 10),
     pollIntervalMs: POLL_INTERVAL_MS,
     sessionSocket: env[SESSION_SOCKET_ENV] ?? "",
     sessionToken: env[SESSION_TOKEN_ENV] ?? "",

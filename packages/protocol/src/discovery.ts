@@ -29,6 +29,8 @@ export interface DiscoveryReply {
   port: number;
   /** Broker package version. */
   version: string;
+  /** Present (`true`) only when the broker is a local fallback; clients prefer other brokers, fallbacks never relay to each other. */
+  fallback?: true;
 }
 
 /** The exact probe object sent by the client. */
