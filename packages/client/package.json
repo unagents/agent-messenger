@@ -29,7 +29,9 @@
     "typecheck": "tsgo -p tsconfig.json",
     "test": "vitest run"
   },
-  "dependencies": {},
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.1"
+  },
   "devDependencies": {
     "@agent-hand/messenger-protocol": "0.6.1"
   }
