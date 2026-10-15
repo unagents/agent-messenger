@@ -114,9 +114,20 @@ npx -y @agent-hand/messenger send master-cap "作業完了"
 | `AGENT_MESSENGER_NAME` | なし | このセッションの名前 |
 | `AGENT_MESSENGER_DELIVERY` | `auto` | 受信配信方式。`auto` = session socket があれば socket、無ければ channel。`socket` / `channel` で固定 |
 | `AGENT_MESSENGER_STATE` | `~/.agent-messenger/broker.json` | broker の状態ファイル |
+| `AGENT_MESSENGER_GRACE_MS` | `30000` | client 用。broker に繋がらなくなってから、同じ URL を再試行し続ける猶予（過ぎたら再解決） |
+| `AGENT_MESSENGER_FALLBACK` | なし | `1` で fallback broker として起動（client が自動起動時に付ける。手動では通常使わない） |
+| `AGENT_MESSENGER_FALLBACK_INTERVAL_MS` | `10000` | fallback broker が他の broker を探す間隔 |
 | `AGENT_MESSENGER_MESH` | `off` | `on` で常設 broker メッシュに参加（broker 用。下記） |
 | `AGENT_MESSENGER_MESH_INTERVAL_MS` | `5000` | メッシュ同期の間隔 |
 | `AGENT_MESSENGER_MESH_PEER_TTL_MS` | `300000` | 他 broker から複製した peer が、その broker の同期途絶後に残る時間 |
+
+## fallback broker の後処理と client の再解決（0.7.0）
+
+- 4 番目の `127.0.0.1:7901`（client が自動起動するローカル broker）は fallback broker（`AGENT_MESSENGER_FALLBACK=1`）として起動する。`/health` と発見応答に `"fallback": true` が付く。常設 broker は付かない。
+- fallback broker は `AGENT_MESSENGER_FALLBACK_INTERVAL_MS`（既定 10 秒）ごとに UDP 発見で他の broker を探す（`AGENT_MESSENGER_DISCOVERY=off` なら探さない）。自分自身と別の fallback は対象外。本来の broker が見つかると、未配信メッセージを `POST /relay-messages` で転送してから自己終了する。転送が失敗したら終了せず次の周期で再試行する。
+- `/relay-messages` は宛先を peer の名前（+ホスト名）で指定する。受け側は登録済みの該当 peer にすぐ配信し、まだ登録されていなければ保留（state file の `pending`、TTL 1 時間）して、その名前の peer が登録または改名した時点で配信する。名前の無い peer 宛は届けられず破棄する。`/relay-messages` を知らない旧 broker（404）には `/send-message` で名前宛に送る（登録済みの peer にのみ届く）。
+- client は broker に繋がらなくなると、同じ URL を猶予（`AGENT_MESSENGER_GRACE_MS`、既定 30 秒）の間再試行し、過ぎたら broker を再解決する（env → config → 発見 → ローカル fallback 起動。成功まで最大 5 秒間隔）。fallback が自己終了した後も同じで、猶予後に本来の broker へ戻って再登録する。heartbeat が拒否された場合は猶予なしで再解決し、再登録する。
+- 発見結果は fallback でない broker を優先して並べる。
 
 ## 常設 broker メッシュ
 
@@ -125,8 +136,10 @@ npx -y @agent-hand/messenger send master-cap "作業完了"
 - 参加するのは `AGENT_MESSENGER_MESH=on` で起動した broker のみ。相手は `AGENT_MESSENGER_CONFIG` の `brokers` に明示した URL（毎回読み直す）。fallback で自動起動された broker は `on` にしないので参加せず、`/mesh/sync` に 404 を返す。
 - 同期は `POST /mesh/sync`（全 mesh broker が相互に送る）。自分に直接登録された peer を送り、相手の peer を受け取る。相手の peer 宛の未配信メッセージも一緒に転送し、相手が受理してから手元で破棄する。
 - 片側が停止中でも、もう一方は送受信を続ける。停止側の peer 宛メッセージは手元に積まれ、復帰後の次の同期で届く。複製 peer は元 broker の同期が途絶えて `AGENT_MESSENGER_MESH_PEER_TTL_MS` 経つと消える。
+- 同期の相手は `AGENT_MESSENGER_CONFIG` の `brokers`（各 broker が相手一覧として読む）。自分自身が一覧に入っていても自動で除外する。mesh broker ごとに `AGENT_MESSENGER_BROKER_ID` を別の値にする。
 - クライアントの変更は不要。旧 client（0.6.3）はそのまま使える（`list_peers` は従来の peer 形式を返す）。
 - 全 broker で `AGENT_MESSENGER_TOKEN` を同じ値にする（同期にも使う）。
+- 有効化は常設 broker の起動環境に `AGENT_MESSENGER_MESH=on` を足す（unit への追加は常設 2 台目の配備時に行う）。
 
 ## 配信の仕組み
 
@@ -155,7 +168,7 @@ npx -y @agent-hand/messenger send master-cap "作業完了"
 npm ci
 npm run build        # protocol を先に build してから全 workspace（unbuild → packages/*/dist）
 npm run typecheck    # tsgo（@typescript/native-preview）
-npm test             # vitest（broker 10 / cli 15 / client 15 / protocol 4）
+npm test             # vitest（broker 26 / cli 16 / client 22 / protocol 4）
 ```
 
 テストは loopback で broker・疑似 npm registry を立てる（192.168.1.202 には接続しない）。
@@ -176,7 +189,7 @@ node scripts/e2e-mcp.mjs [--broker direct|cli]
 
 ## 公開手順
 
-`docs/release-0.5.0.md`（publish の順序: protocol → broker → client → platform 2 種 → cli、broker 切替、ロールバック）。
+`docs/release-0.7.0.md`（0.7.0 の変更点・publish 順・broker 更新・互換性）。基本手順は `docs/release-0.5.0.md`（publish の順序: protocol → broker → client → platform 2 種 → cli、broker 切替、ロールバック）。
 
 ## 既知の課題
 
