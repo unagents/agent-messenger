@@ -31,6 +31,12 @@ export interface Peer {
   registered_at: string;
   /** ISO 8601 timestamp; refreshed by `/heartbeat`. */
   last_seen: string;
+  /**
+   * Mesh only: id of the permanent broker this peer is registered with, set on
+   * copies a mesh broker replicated from another one. Absent for peers that
+   * registered directly. Never returned by `/list-peers`.
+   */
+  origin?: string;
 }
 
 export type MessageMode = "pull" | "push" | "ping";
@@ -56,6 +62,8 @@ export interface Message {
   delivered: 0 | 1;
   /** Always 0 in the current implementation (acknowledged messages are deleted). */
   acknowledged: 0 | 1;
+  /** Mesh only: `<sender broker id>:<id there>` of a message forwarded by another broker (duplicate guard). */
+  mesh_key?: string;
 }
 
 /** `/list-peers` scope filter. Unknown values behave as `"all"`. */
@@ -235,3 +243,30 @@ export interface BrokerRouteMap {
 
 export type BrokerRequest<R extends BrokerPostRoute> = BrokerRouteMap[R]["request"];
 export type BrokerResponse<R extends BrokerPostRoute> = BrokerRouteMap[R]["response"];
+
+// --- Broker mesh (permanent brokers only; not part of BROKER_POST_ROUTES) ---
+
+/** Broker-to-broker sync route. Old brokers answer 404 and are simply not part of the mesh. */
+export const MESH_SYNC_ROUTE = "/mesh/sync" as const;
+
+/**
+ * POST /mesh/sync — one round of peer / message replication, sent by each
+ * mesh broker to every other one.
+ */
+export interface MeshSyncRequest {
+  /** Id of the sending broker (= `origin` of the peers below). */
+  from: string;
+  /** Live peers that registered directly with the sender (replaces what the receiver holds for `from`). */
+  peers: Peer[];
+  /** Undelivered messages the sender holds for peers that live on the receiver. Ids are the sender's. */
+  messages: Message[];
+}
+
+export interface MeshSyncResponse {
+  /** Id of the receiving broker. */
+  id: string;
+  /** Live peers that registered directly with the receiver. */
+  peers: Peer[];
+  /** Sender-side ids of the messages the receiver took over; the sender drops them. */
+  accepted: number[];
+}

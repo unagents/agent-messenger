@@ -19,6 +19,8 @@ After=network.target
 Environment=AGENT_MESSENGER_BIND=0.0.0.0
 Environment=AGENT_MESSENGER_PORT=7901
 # Environment=AGENT_MESSENGER_TOKEN=<token>
+# Permanent-broker mesh: list the other permanent brokers in ~/.agent-messenger/config.json ("brokers") and enable
+# Environment=AGENT_MESSENGER_MESH=on
 ExecStart=/usr/bin/npx -y @agent-hand/messenger broker
 Restart=always
 RestartSec=3

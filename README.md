@@ -114,6 +114,19 @@ npx -y @agent-hand/messenger send master-cap "作業完了"
 | `AGENT_MESSENGER_NAME` | なし | このセッションの名前 |
 | `AGENT_MESSENGER_DELIVERY` | `auto` | 受信配信方式。`auto` = session socket があれば socket、無ければ channel。`socket` / `channel` で固定 |
 | `AGENT_MESSENGER_STATE` | `~/.agent-messenger/broker.json` | broker の状態ファイル |
+| `AGENT_MESSENGER_MESH` | `off` | `on` で常設 broker メッシュに参加（broker 用。下記） |
+| `AGENT_MESSENGER_MESH_INTERVAL_MS` | `5000` | メッシュ同期の間隔 |
+| `AGENT_MESSENGER_MESH_PEER_TTL_MS` | `300000` | 他 broker から複製した peer が、その broker の同期途絶後に残る時間 |
+
+## 常設 broker メッシュ
+
+常設 broker 同士（例: 202 と Mac）を相互同期し、どの broker に繋いだ peer からも `list_peers` で全ホストの peer が見えるようにする。
+
+- 参加するのは `AGENT_MESSENGER_MESH=on` で起動した broker のみ。相手は `AGENT_MESSENGER_CONFIG` の `brokers` に明示した URL（毎回読み直す）。fallback で自動起動された broker は `on` にしないので参加せず、`/mesh/sync` に 404 を返す。
+- 同期は `POST /mesh/sync`（全 mesh broker が相互に送る）。自分に直接登録された peer を送り、相手の peer を受け取る。相手の peer 宛の未配信メッセージも一緒に転送し、相手が受理してから手元で破棄する。
+- 片側が停止中でも、もう一方は送受信を続ける。停止側の peer 宛メッセージは手元に積まれ、復帰後の次の同期で届く。複製 peer は元 broker の同期が途絶えて `AGENT_MESSENGER_MESH_PEER_TTL_MS` 経つと消える。
+- クライアントの変更は不要。旧 client（0.6.3）はそのまま使える（`list_peers` は従来の peer 形式を返す）。
+- 全 broker で `AGENT_MESSENGER_TOKEN` を同じ値にする（同期にも使う）。
 
 ## 配信の仕組み
 

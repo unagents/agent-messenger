@@ -24,6 +24,8 @@ export class BrokerState {
   readonly peers = new Map<string, Peer>();
   messages: Message[] = [];
   nextMsgId = 1;
+  /** Mesh: when each origin broker last synced with us (ms epoch, memory only). Replicated peers live as long as this is fresh. */
+  readonly originSeen = new Map<string, number>();
 
   private saveTimer: NodeJS.Timeout | null = null;
 
@@ -33,7 +35,11 @@ export class BrokerState {
   load(): void {
     try {
       const raw = JSON.parse(readFileSync(this.file, "utf8")) as Partial<BrokerStateFile>;
-      for (const p of raw.peers ?? []) this.peers.set(p.id, p);
+      for (const p of raw.peers ?? []) {
+        this.peers.set(p.id, p);
+        // replicated peers get a fresh grace period after a restart
+        if (p.origin) this.originSeen.set(p.origin, Date.now());
+      }
       this.messages = raw.messages ?? [];
       this.nextMsgId = raw.nextMsgId ?? 1;
       log.info(`Loaded state from ${this.file} (${this.peers.size} peer(s), ${this.messages.length} message(s))`);

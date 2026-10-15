@@ -10,7 +10,7 @@ import {
   type H3Event,
 } from "h3";
 import type { BrokerErrorResponse, BrokerPostRoute, HealthResponse } from "@agent-hand/messenger-protocol";
-import { BROKER_POST_ROUTES, HEALTH_ROUTE } from "@agent-hand/messenger-protocol";
+import { BROKER_POST_ROUTES, HEALTH_ROUTE, MESH_SYNC_ROUTE } from "@agent-hand/messenger-protocol";
 import type { BrokerHandlers } from "./handlers.js";
 
 export interface HttpAppOptions {
@@ -20,6 +20,8 @@ export interface HttpAppOptions {
   /** Reported in `/health`; the port the server actually listens on. */
   port: () => number;
   token: string;
+  /** Answer `POST /mesh/sync`; when false the route does not exist (404), like on a 0.6.x broker. */
+  mesh?: boolean;
 }
 
 /**
@@ -49,6 +51,18 @@ export function createBrokerApp(opts: HttpAppOptions): App {
       try {
         const body = await readJson(event);
         return routes[route as BrokerPostRoute](body as never);
+      } catch (e) {
+        setResponseStatus(event, 500);
+        return { error: (e as Error).message } satisfies BrokerErrorResponse;
+      }
+    }));
+  }
+
+  if (opts.mesh) {
+    router.post(MESH_SYNC_ROUTE, defineEventHandler(async (event) => {
+      if (!authorized(event, opts.token)) return unauthorized(event);
+      try {
+        return opts.handlers.meshSync((await readJson(event)) as never);
       } catch (e) {
         setResponseStatus(event, 500);
         return { error: (e as Error).message } satisfies BrokerErrorResponse;
