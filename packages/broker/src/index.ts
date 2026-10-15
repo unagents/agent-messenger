@@ -5,6 +5,7 @@ import { DISCOVERY_KEY, DISCOVERY_REPLY_VALUE, type DiscoveryReply } from "@agen
 import { resolveConfig, type BrokerOptions } from "./config.js";
 import { BrokerState } from "./state.js";
 import { BrokerHandlers } from "./handlers.js";
+import { Mesh, normalizeBrokerUrl, readMeshBrokers } from "./mesh.js";
 import { createBrokerApp } from "./http.js";
 import { localAddresses, probeBrokers, startDiscoveryResponder } from "./discovery.js";
 import { relayUndelivered } from "./relay.js";
@@ -12,7 +13,7 @@ import { log } from "./log.js";
 import pkg from "../package.json" with { type: "json" };
 
 export type { BrokerOptions, BrokerConfig } from "./config.js";
-export { configFromEnv, resolveConfig, DEFAULT_STATE_FILE, STATE_DIR, FALLBACK_ENV, FALLBACK_INTERVAL_ENV } from "./config.js";
+export { configFromEnv, MESH_ENV, resolveConfig, DEFAULT_STATE_FILE, STATE_DIR, FALLBACK_ENV, FALLBACK_INTERVAL_ENV } from "./config.js";
 export type { BrokerStateFile } from "./state.js";
 
 /** Package version, reported by `/health` and discovery replies (inlined at build time). */
@@ -44,7 +45,12 @@ export async function startBroker(options: BrokerOptions = {}): Promise<BrokerHa
 
   const state = new BrokerState(cfg.stateFile);
   state.load();
-  const handlers = new BrokerHandlers(state);
+  let mesh: Mesh | null = null;
+  const handlers = new BrokerHandlers(state, {
+    id: cfg.id,
+    meshPeerTtlMs: cfg.meshPeerTtlMs,
+    onRemoteMessage: () => mesh?.kick(),
+  });
   handlers.cleanStalePeers();
   const cleaner = setInterval(() => handlers.cleanStalePeers(), CLEAN_INTERVAL_MS);
   cleaner.unref();
@@ -57,6 +63,7 @@ export async function startBroker(options: BrokerOptions = {}): Promise<BrokerHa
     port: () => port,
     token: cfg.token,
     fallback: cfg.fallback,
+    mesh: cfg.mesh,
   });
 
   let listener: Listener;
@@ -82,6 +89,18 @@ export async function startBroker(options: BrokerOptions = {}): Promise<BrokerHa
     disco = await startDiscoveryResponder({ port: cfg.discoveryPort, addr: cfg.discoveryAddr, reply });
   }
 
+  if (cfg.mesh) {
+    const fixed = cfg.meshBrokers.map(normalizeBrokerUrl);
+    mesh = new Mesh({
+      id: cfg.id,
+      token: cfg.token,
+      handlers,
+      urls: () => (fixed.length ? fixed : readMeshBrokers(cfg.configFile)),
+      intervalMs: cfg.meshIntervalMs,
+    });
+    mesh.start();
+  }
+
   log.info(`v${VERSION} id=${cfg.id} listening on ${cfg.bind}:${port} (state: ${cfg.stateFile})`);
   if (cfg.fallback) log.info(`FALLBACK mode: looking for another broker every ${cfg.fallbackIntervalMs} ms (discovery ${cfg.discovery ? "on" : "off"})`);
   log.info(cfg.token ? "token auth enabled" : "WARNING: no AGENT_MESSENGER_TOKEN set — broker is open");
@@ -93,6 +112,7 @@ export async function startBroker(options: BrokerOptions = {}): Promise<BrokerHa
     closed = true;
     clearInterval(cleaner);
     if (fallbackTimer) clearInterval(fallbackTimer);
+    mesh?.stop();
     if (disco) {
       await new Promise<void>((resolve) => disco!.close(() => resolve()));
     }

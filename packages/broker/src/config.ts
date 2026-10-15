@@ -35,6 +35,22 @@ export interface BrokerOptions {
   fallbackIntervalMs?: number;
   /** Called after a fallback broker has relayed its messages and closed itself (`main.ts` exits the process). */
   onSupersede?: (url: string) => void;
+  /**
+   * Join the permanent-broker mesh (`AGENT_MESSENGER_MESH`, `"on"` enables; default off).
+   * Fallback brokers must leave this off: only brokers started with it take part.
+   */
+  mesh?: boolean;
+  /**
+   * Mesh members to sync with. Empty (default) = the `brokers` list of the client
+   * config file (`AGENT_MESSENGER_CONFIG`, default `~/.agent-messenger/config.json`), re-read every round.
+   */
+  meshBrokers?: string[];
+  /** Mesh sync interval in ms (`AGENT_MESSENGER_MESH_INTERVAL_MS`, default 5000). */
+  meshIntervalMs?: number;
+  /** Replicated peers disappear this long after their origin stopped syncing (`AGENT_MESSENGER_MESH_PEER_TTL_MS`, default 300000). */
+  meshPeerTtlMs?: number;
+  /** Client config file read for the mesh member list (`AGENT_MESSENGER_CONFIG`). */
+  configFile?: string;
 }
 
 export type BrokerConfig = Required<Omit<BrokerOptions, "onSupersede">> & Pick<BrokerOptions, "onSupersede">;
@@ -50,6 +66,13 @@ export const STATE_DIR = join(homedir(), ".agent-messenger");
 /** Default state file path (`~/.agent-messenger/broker.json`). Not exported by protocol. */
 export const DEFAULT_STATE_FILE = join(STATE_DIR, "broker.json");
 
+/** Mesh environment variables. Broker-private (not in the protocol's `ENV`, which mirrors the legacy names). */
+export const MESH_ENV = {
+  MESH: "AGENT_MESSENGER_MESH",
+  INTERVAL_MS: "AGENT_MESSENGER_MESH_INTERVAL_MS",
+  PEER_TTL_MS: "AGENT_MESSENGER_MESH_PEER_TTL_MS",
+} as const;
+
 /** Read the broker-side environment exactly like `legacy/src/config.js`. */
 export function configFromEnv(env: NodeJS.ProcessEnv = process.env): BrokerConfig {
   return {
@@ -63,6 +86,11 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): BrokerConfi
     discoveryAddr: env[ENV.DISCOVERY_ADDR] ?? "",
     fallback: ["1", "true", "on", "yes"].includes((env[FALLBACK_ENV] ?? "").toLowerCase()),
     fallbackIntervalMs: parseInt(env[FALLBACK_INTERVAL_ENV] ?? String(DEFAULT_FALLBACK_INTERVAL_MS), 10),
+    mesh: (env[MESH_ENV.MESH] ?? "off").toLowerCase() === "on",
+    meshBrokers: [],
+    meshIntervalMs: parseInt(env[MESH_ENV.INTERVAL_MS] ?? "5000", 10),
+    meshPeerTtlMs: parseInt(env[MESH_ENV.PEER_TTL_MS] ?? "300000", 10),
+    configFile: env[ENV.CONFIG] ?? join(STATE_DIR, "config.json"),
   };
 }
 

@@ -10,7 +10,7 @@ import {
   type H3Event,
 } from "h3";
 import type { BrokerErrorResponse, BrokerPostRoute, HealthResponse, RelayMessagesRequest } from "@agent-hand/messenger-protocol";
-import { BROKER_POST_ROUTES, HEALTH_ROUTE, RELAY_ROUTE } from "@agent-hand/messenger-protocol";
+import { BROKER_POST_ROUTES, HEALTH_ROUTE, MESH_SYNC_ROUTE, RELAY_ROUTE } from "@agent-hand/messenger-protocol";
 import type { BrokerHandlers } from "./handlers.js";
 
 export interface HttpAppOptions {
@@ -22,6 +22,8 @@ export interface HttpAppOptions {
   token: string;
   /** Reported in `/health` (as `fallback: true`) when the broker is a local fallback. */
   fallback?: boolean;
+  /** Answer `POST /mesh/sync`; when false the route does not exist (404), like on a 0.6.x broker. */
+  mesh?: boolean;
 }
 
 /**
@@ -59,6 +61,8 @@ export function createBrokerApp(opts: HttpAppOptions): App {
 
   for (const route of BROKER_POST_ROUTES) post(route, (body) => routes[route as BrokerPostRoute](body as never));
   post(RELAY_ROUTE, (body) => opts.handlers.relayMessages(body as RelayMessagesRequest));
+
+  if (opts.mesh) post(MESH_SYNC_ROUTE, (body) => opts.handlers.meshSync(body as never));
 
   const app = createApp();
   app.use(router);
