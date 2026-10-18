@@ -41,6 +41,8 @@ mkdir -p release/0.7.0
 for p in protocol broker client client-linux-x64 cli; do npm pack --pack-destination release/0.7.0 ./packages/$p; done
 ```
 
+e2e `scripts/e2e-mcp.mjs` の結果は `41 passed, 0 failed`（6 tool、pull の未読通知、push の本文配信の assertion に更新。2026-10-18）。
+
 darwin-arm64 の tarball は、バイナリを持つ Mac で `client-darwin-arm64` を pack した時だけ作る（バイナリ無しの tarball は作らない）。
 
 publish の順序（`docs/release-0.5.0.md` の 1 と同じ。**順序厳守**）: protocol → broker → client → client-linux-x64 →（client-darwin-arm64。tarball が届いていれば）→ CLI（Verdaccio）。CLI は core が Gitea Packages に揃ってから出す。Gitea Packages 側は必ず `env npm_config_@agent-hand:registry=http://192.168.1.202/gitea/api/packages/agent-hand/npm/` を付ける。手順書は `docs/history/20261015-release-0.7.0/publish-202.md`。

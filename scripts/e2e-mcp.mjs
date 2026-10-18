@@ -328,14 +328,14 @@ async function mcpFlow(a, b, aName, bName) {
   check(`${a.label}: initialize`, ia.serverInfo?.name === "agent-messenger" && ia.protocolVersion === "2025-06-18", `serverInfo=${JSON.stringify(ia.serverInfo)}`);
   const tl = await a.request("tools/list");
   const names = (tl.tools ?? []).map((t) => t.name).join(",");
-  check(`${a.label}: tools/list`, names === "list_peers,send_message,set_name,set_summary,check_messages", names);
+  check(`${a.label}: tools/list`, names === "list_peers,send_message,send_ping,set_name,set_summary,check_messages", names);
   const sn = await a.tool("set_name", { name: aName });
   check(`${a.label}: set_name`, sn.text === `Name set: "${aName}"`, sn.text);
 
   const ib = await b.initialize();
   check(`${b.label}: initialize`, ib.serverInfo?.name === "agent-messenger", `serverInfo=${JSON.stringify(ib.serverInfo)}`);
   const tlb = await b.request("tools/list");
-  check(`${b.label}: tools/list`, (tlb.tools ?? []).length === 5, `${(tlb.tools ?? []).length} tools`);
+  check(`${b.label}: tools/list`, (tlb.tools ?? []).length === 6, `${(tlb.tools ?? []).length} tools`);
   const snb = await b.tool("set_name", { name: bName });
   check(`${b.label}: set_name`, snb.text === `Name set: "${bName}"`, snb.text);
 
@@ -478,9 +478,24 @@ async function main() {
       // reported below
     }
     check("session socket: auth line", auth && auth.type === "auth" && auth.token === "e2e-session-token", sess.lines[0] ?? "(none)");
-    check("session socket: user line", user && user.type === "user" && user.message?.role === "user" && user.message?.content?.includes(t3), (sess.lines[1] ?? "(none)").slice(0, 120));
+    check("session socket: user line (pull: unread notice)", user && user.type === "user" && user.message?.role === "user" && /^\[agent-messenger\] 未読 1 件/.test(user.message?.content ?? ""), (sess.lines[1] ?? "(none)").slice(0, 120));
     check("session socket: half-close after the two lines", sess.ended() && sess.lines.length === 2, `lines=${sess.lines.length} ended=${sess.ended()}`);
-    check("session socket: client acknowledged", /Session socket delivery OK/.test(c.stderr), c.stderr.match(/Session socket delivery [^\n]*/)?.[0] ?? "(no log)");
+    check("session socket: client acknowledged", /Session socket unread notice OK/.test(c.stderr), c.stderr.match(/Session socket unread notice [^\n]*/)?.[0] ?? "(no log)");
+
+    // delivery "push": the text itself arrives on the session socket
+    const t3p = `socket push test ${Date.now()}`;
+    const s3p = await sender.tool("send_message", { to: "e2e-socket", message: t3p, delivery: "push" });
+    check(`${sender.label} → socket peer: send_message (push)`, !s3p.isError && /\(delivery: push\)/.test(s3p.text), s3p.text);
+    for (let i = 0; i < 60 && !sess.lines.some((l) => l.includes(t3p)); i++) await sleep(100);
+    const pushLine = sess.lines.find((l) => l.includes(t3p));
+    let pushed = null;
+    try {
+      pushed = JSON.parse(pushLine ?? "null");
+    } catch {
+      // reported below
+    }
+    check("session socket: user line (push: message text)", pushed && pushed.type === "user" && pushed.message?.content?.startsWith("[agent-messenger] message from ") && pushed.message.content.includes(t3p), (pushLine ?? "(none)").slice(0, 120));
+    check("session socket: client acknowledged (push)", /Session socket delivery OK/.test(c.stderr), c.stderr.match(/Session socket delivery [^\n]*/)?.[0] ?? "(no log)");
     sess.server.close();
 
     // 4. peers / status / send
