@@ -136,6 +136,8 @@ export function createMessengerClient(options: MessengerClientOptions = {}): Mes
   let failSince: number | null = null;
   let lastResolveAttempt = 0;
   let resolving = false;
+  /** the re-resolution in progress (close() waits for it) */
+  let inflightReresolve: Promise<void> | null = null;
 
   function noteFailure() {
     if (failSince !== null) return;
@@ -149,8 +151,7 @@ export function createMessengerClient(options: MessengerClientOptions = {}): Mes
     log(`Broker ${broker.getUrl()} reachable again`);
   }
 
-  async function reresolve(reason: string) {
-    if (resolving) return;
+  async function doReresolve(reason: string) {
     resolving = true;
     lastResolveAttempt = Date.now();
     try {
@@ -158,6 +159,7 @@ export function createMessengerClient(options: MessengerClientOptions = {}): Mes
       log(`Re-resolving broker (${reason})`);
       const r = await resolveBroker(cfg, broker, log, options.brokers);
       await ensureBroker(cfg, env, broker, r, log, autoStart);
+      if (closed) return; // close() won the race: never re-register after it
       await registerPeer(broker, peer, log);
       log(`broker=${broker.getUrl()} (${r.isLocal ? "local" : "remote"}, via ${r.source})${prev === broker.getUrl() ? "" : ` — was ${prev}`}`);
       failSince = null;
@@ -169,8 +171,19 @@ export function createMessengerClient(options: MessengerClientOptions = {}): Mes
     }
   }
 
+  async function reresolve(reason: string) {
+    if (resolving || closed) return;
+    const p = doReresolve(reason);
+    inflightReresolve = p;
+    try {
+      await p;
+    } finally {
+      if (inflightReresolve === p) inflightReresolve = null;
+    }
+  }
+
   async function pollLoop() {
-    if (resolving) return;
+    if (resolving || closed) return;
     try {
       await inbox.poll(true);
       noteOk();
@@ -181,14 +194,14 @@ export function createMessengerClient(options: MessengerClientOptions = {}): Mes
   }
 
   async function recoverLoop() {
-    if (failSince === null || resolving) return;
+    if (failSince === null || resolving || closed) return;
     const now = Date.now();
     if (now - failSince < cfg.graceMs || now - lastResolveAttempt < RESOLVE_RETRY_MS) return;
     await reresolve("connection failure");
   }
 
   async function heartbeat() {
-    if (resolving) return;
+    if (resolving || closed) return;
     try {
       const r = await broker.post("/heartbeat", { id: peer.id as string });
       if (r && r.ok === false) {
@@ -224,6 +237,7 @@ export function createMessengerClient(options: MessengerClientOptions = {}): Mes
   }
 
   function connect(): Promise<void> {
+    if (closed) return Promise.reject(new Error("client closed"));
     if (connectPromise) return connectPromise;
     const p = doConnect();
     connectPromise = p;
@@ -235,6 +249,7 @@ export function createMessengerClient(options: MessengerClientOptions = {}): Mes
 
   async function doClose(cp: Promise<void>): Promise<void> {
     closed = true;
+    inbox.stop();
     try {
       await cp;
     } catch {
@@ -246,6 +261,8 @@ export function createMessengerClient(options: MessengerClientOptions = {}): Mes
     pollTimer = null;
     heartbeatTimer = null;
     recoverTimer = null;
+    // a re-resolution already in progress must finish (it will not register) before we unregister
+    if (inflightReresolve) await inflightReresolve.catch(() => {});
     if (!peer.id) return;
     try {
       await broker.post("/unregister", { id: peer.id });

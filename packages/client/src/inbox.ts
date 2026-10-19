@@ -29,6 +29,8 @@ export interface Inbox {
   checkMessages(): Promise<InboundMessage[]>;
   /** Register a handler (library use). Returns an unregister function. */
   onMessage(handler: MessageHandler): () => void;
+  /** Stop polling and dispatching (the client is closing). Pending work ends at its next step. */
+  stop(): void;
 }
 
 const MAX_BUFFER = 200;
@@ -50,6 +52,7 @@ export function createInbox(opts: {
   const notifiedIds = new Set<number>();
   const handlers: MessageHandler[] = [];
   let dispatching = false;
+  let stopped = false;
 
   async function lookupSender(fromId: string): Promise<Peer | null> {
     try {
@@ -87,13 +90,14 @@ export function createInbox(opts: {
     dispatching = true;
     try {
       for (const entry of localBuffer.slice()) {
-        if (handlers.length === 0) break;
+        if (stopped || handlers.length === 0) break;
         try {
           for (const h of handlers.slice()) await h(entry);
         } catch (e) {
           log(`Message handler failed for ${entry.id}: ${errorMessage(e)} — will retry`);
           continue;
         }
+        if (stopped) break;
         await acknowledge(entry.id);
       }
     } finally {
@@ -102,9 +106,10 @@ export function createInbox(opts: {
   }
 
   async function poll(push: boolean) {
-    if (!peer.id) return;
+    if (stopped || !peer.id) return;
     const result = await broker.post("/poll-messages", { id: peer.id });
     for (const msg of result.messages) {
+      if (stopped) return;
       const sender = await lookupSender(msg.from_id);
       const entry: InboundMessage = {
         ...msg,
@@ -163,5 +168,9 @@ export function createInbox(opts: {
     };
   }
 
-  return { poll, checkMessages, onMessage };
+  function stop() {
+    stopped = true;
+  }
+
+  return { poll, checkMessages, onMessage, stop };
 }

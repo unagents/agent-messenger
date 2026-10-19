@@ -8,7 +8,8 @@
  */
 import type { ChildProcess } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
-import { createServer } from "node:net";
+import { connect as netConnect, createServer } from "node:net";
+import type { Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -47,9 +48,50 @@ async function until(pred: () => boolean | Promise<boolean>, ms: number): Promis
   return pred();
 }
 
+/** TCP proxy to the broker that can hold GET /health requests (to freeze a re-resolution mid-flight). */
+function healthHoldingProxy(listenPort: number, targetPort: number) {
+  const state = { hold: false, held: 0, release: () => {} };
+  let gate: Promise<void> = Promise.resolve();
+  let open = () => {};
+  const arm = () => {
+    gate = new Promise<void>((r) => (open = r));
+    state.release = () => open();
+  };
+  const sockets = new Set<Socket>();
+  const server = createServer((client) => {
+    sockets.add(client);
+    client.on("close", () => sockets.delete(client));
+    client.once("data", async (first) => {
+      if (state.hold && first.toString().startsWith("GET /health")) {
+        state.held++;
+        await gate;
+      }
+      const up = netConnect(targetPort, "127.0.0.1");
+      sockets.add(up);
+      up.on("close", () => sockets.delete(up));
+      up.on("error", () => client.destroy());
+      client.on("error", () => up.destroy());
+      up.write(first);
+      client.pipe(up);
+      up.pipe(client);
+    });
+    client.on("error", () => {});
+  });
+  return {
+    state,
+    arm,
+    listen: () => new Promise<void>((r) => server.listen(listenPort, "127.0.0.1", () => r())),
+    stop: () => {
+      for (const k of sockets) k.destroy();
+      return new Promise<void>((r) => server.close(() => r()));
+    },
+  };
+}
+
 let dir: string;
 let port: number;
 let spare: number;
+let proxyPort: number;
 let broker: ChildProcess;
 let origHome: string | undefined;
 let fakeB: string;
@@ -85,7 +127,7 @@ beforeAll(async () => {
   dir = mkdtempSync(join(tmpdir(), "am-lib-"));
   origHome = process.env.HOME;
   process.env.HOME = dir;
-  [port, spare] = await freePorts(2);
+  [port, spare, proxyPort] = await freePorts(3);
   broker = await startBroker({
     ...baseEnv(),
     HOME: dir,
@@ -217,6 +259,36 @@ describe("createMessengerClient", () => {
     await sleep(2500);
     expect((await peersNow()).map((p) => p.name)).not.toContain("lib-b");
     expect(blogs.some((m) => m.includes("Poll error"))).toBe(false);
+  });
+
+  it("close() during a re-resolution: the re-resolution does not register after close", async () => {
+    const proxy = healthHoldingProxy(proxyPort, port);
+    await proxy.listen();
+    const dlogs: string[] = [];
+    const env = { ...libEnv(proxyPort, "lib-d"), AGENT_MESSENGER_HEARTBEAT_MS: "300" };
+    const d = createMessengerClient({ env, log: (m) => dlogs.push(m) });
+    try {
+      await d.connect();
+      expect(dlogs.filter((m) => m.startsWith("Registered as peer"))).toHaveLength(1);
+      proxy.arm();
+      proxy.state.hold = true;
+      // the broker forgets the peer: the next heartbeat is rejected and starts a re-resolution that parks on GET /health
+      await raw("/unregister", { id: d.peer.id });
+      expect(await until(() => proxy.state.held > 0, 5000)).toBe(true);
+      expect(dlogs.some((m) => m.includes("Re-resolving broker (heartbeat rejected)"))).toBe(true);
+      const closing = d.close();
+      proxy.state.hold = false;
+      proxy.state.release();
+      await closing;
+      await sleep(800);
+      expect((await peersNow()).map((p) => p.name)).not.toContain("lib-d");
+      expect(dlogs.filter((m) => m.startsWith("Registered as peer"))).toHaveLength(1);
+      await expect(d.connect()).rejects.toThrow("client closed");
+    } finally {
+      proxy.state.release();
+      await d.close().catch(() => {});
+      await proxy.stop();
+    }
   });
 
   it("autoStartBroker is off by default: unreachable local broker rejects without spawning", async () => {
