@@ -2,7 +2,7 @@ import { fileURLToPath } from "node:url";
 import { defineBuildConfig } from "unbuild";
 
 export default defineBuildConfig({
-  entries: ["src/index", "src/main"],
+  entries: ["src/index", "src/main", "src/tools/index"],
   declaration: true,
   clean: true,
   // protocol is a build-time only dependency: its constants and types are

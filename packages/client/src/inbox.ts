@@ -1,0 +1,167 @@
+import type { Message, Peer } from "@agent-hand/messenger-protocol";
+import type { BrokerClient } from "./broker.js";
+import type { PeerState } from "./peer.js";
+import type { Logger } from "./resolve.js";
+
+/** A polled message enriched with sender details. */
+export interface InboundMessage extends Message {
+  from_hostname: string;
+  from_summary: string;
+  from_cwd: string;
+}
+
+/** The host's way to reach the conversation (stdio: session socket, then channel notification). */
+export interface Notifier {
+  /** Pull unread notice. `latest` = last buffered message, `count` = buffer size. Resolves true when delivered. */
+  unread(latest: InboundMessage, count: number): Promise<boolean>;
+  /** Ping notice. Failures are only logged (the inbox acknowledges afterwards). */
+  ping(entry: InboundMessage): Promise<void>;
+  /** Push delivery of the text. Resolves true when delivered (the inbox acknowledges); false leaves it buffered. */
+  push(entry: InboundMessage): Promise<boolean>;
+}
+
+export type MessageHandler = (m: InboundMessage) => void | Promise<void>;
+
+export interface Inbox {
+  /** Pull undelivered messages from the broker; `push` enables notifier delivery. */
+  poll(push: boolean): Promise<void>;
+  /** Read and acknowledge everything buffered (also fetches buffered-but-unacknowledged ones from the broker). */
+  checkMessages(): Promise<InboundMessage[]>;
+  /** Register a handler (library use). Returns an unregister function. */
+  onMessage(handler: MessageHandler): () => void;
+}
+
+const MAX_BUFFER = 200;
+
+function errorMessage(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
+}
+
+export function createInbox(opts: {
+  broker: Pick<BrokerClient, "post">;
+  peer: PeerState;
+  log: Logger;
+  notifier?: Notifier;
+}): Inbox {
+  const { broker, peer, log, notifier } = opts;
+  /** messages received but not yet acknowledged */
+  const localBuffer: InboundMessage[] = [];
+  /** ids already covered by an unread notice (cleared by checkMessages) */
+  const notifiedIds = new Set<number>();
+  const handlers: MessageHandler[] = [];
+  let dispatching = false;
+
+  async function lookupSender(fromId: string): Promise<Peer | null> {
+    try {
+      const peers = await broker.post("/list-peers", { scope: "all", cwd: peer.cwd, git_root: peer.gitRoot });
+      return peers.find((p) => p.id === fromId) ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  async function acknowledge(messageId: number) {
+    await broker.post("/acknowledge-messages", { id: peer.id as string, message_ids: [messageId] }).catch(() => {});
+    const i = localBuffer.findIndex((b) => b.id === messageId);
+    if (i !== -1) localBuffer.splice(i, 1);
+  }
+
+  function pushBuffer(entry: InboundMessage) {
+    localBuffer.push(entry);
+    if (localBuffer.length > MAX_BUFFER) localBuffer.splice(0, localBuffer.length - MAX_BUFFER);
+  }
+
+  /** body=pull: one unread notice when the buffer holds ids not yet covered by a notice. */
+  async function notifyUnread() {
+    if (!notifier) return;
+    if (localBuffer.length === 0) return;
+    if (!localBuffer.some((b) => !notifiedIds.has(b.id))) return;
+    const latest = localBuffer[localBuffer.length - 1];
+    const delivered = await notifier.unread(latest, localBuffer.length);
+    if (delivered) for (const b of localBuffer) notifiedIds.add(b.id);
+  }
+
+  /** Hand every buffered message to the handlers; acknowledge after all succeeded, keep it (retry next tick) otherwise. */
+  async function dispatch() {
+    if (dispatching) return;
+    dispatching = true;
+    try {
+      for (const entry of localBuffer.slice()) {
+        if (handlers.length === 0) break;
+        try {
+          for (const h of handlers.slice()) await h(entry);
+        } catch (e) {
+          log(`Message handler failed for ${entry.id}: ${errorMessage(e)} — will retry`);
+          continue;
+        }
+        await acknowledge(entry.id);
+      }
+    } finally {
+      dispatching = false;
+    }
+  }
+
+  async function poll(push: boolean) {
+    if (!peer.id) return;
+    const result = await broker.post("/poll-messages", { id: peer.id });
+    for (const msg of result.messages) {
+      const sender = await lookupSender(msg.from_id);
+      const entry: InboundMessage = {
+        ...msg,
+        from_name: msg.from_name || sender?.name || "",
+        from_hostname: sender?.hostname ?? "",
+        from_summary: sender?.summary ?? "",
+        from_cwd: sender?.cwd ?? "",
+      };
+      if (handlers.length > 0) {
+        pushBuffer(entry);
+        continue;
+      }
+      if (msg.mode === "ping") {
+        if (notifier) await notifier.ping(entry);
+        await acknowledge(msg.id);
+        continue;
+      }
+      pushBuffer(entry);
+      if (!push || msg.mode !== "push") continue;
+      if (notifier && (await notifier.push(entry))) await acknowledge(msg.id);
+    }
+    if (handlers.length > 0) await dispatch();
+    else if (push) await notifyUnread();
+  }
+
+  async function checkMessages(): Promise<InboundMessage[]> {
+    await poll(false);
+    const buffered = await broker.post("/get-buffered-messages", { id: peer.id as string });
+    for (const m of buffered.messages) {
+      if (m.mode === "ping") {
+        await acknowledge(m.id);
+        continue;
+      }
+      if (!localBuffer.some((b) => b.id === m.id)) {
+        localBuffer.push({ ...m, from_hostname: "", from_summary: "", from_cwd: "" });
+      }
+    }
+    // pings that entered the buffer through the handler path are dropped here
+    for (const b of localBuffer.slice()) {
+      if (b.mode === "ping") await acknowledge(b.id);
+    }
+    if (localBuffer.length === 0) return [];
+    const ids = localBuffer.map((m) => m.id);
+    await broker.post("/acknowledge-messages", { id: peer.id as string, message_ids: ids }).catch(() => {});
+    const out = localBuffer.slice();
+    localBuffer.length = 0;
+    notifiedIds.clear();
+    return out;
+  }
+
+  function onMessage(handler: MessageHandler): () => void {
+    handlers.push(handler);
+    return () => {
+      const i = handlers.indexOf(handler);
+      if (i !== -1) handlers.splice(i, 1);
+    };
+  }
+
+  return { poll, checkMessages, onMessage };
+}

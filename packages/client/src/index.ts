@@ -1,4 +1,7 @@
-export { startClient, TOOLS, INSTRUCTIONS, CAPABILITIES } from "./client.js";
+export { startClient } from "./client.js";
+export { TOOLS } from "./tools/registry.js";
+export { INSTRUCTIONS } from "./tools/defs.js";
+export { CAPABILITIES } from "./hosts/stdio.js";
 export type { StartClientOptions } from "./client.js";
 export { loadConfig, isLocalHost } from "./config.js";
 export * from "./constants.js";
@@ -11,3 +14,7 @@ export { postToSession } from "./session.js";
 export { createStdioServer, LATEST_PROTOCOL_VERSION, SUPPORTED_PROTOCOL_VERSIONS } from "./mcp.js";
 export type { McpStdioServer, McpStdioServerOptions } from "./mcp.js";
 export { VERSION } from "./version.js";
+export { createMessengerClient } from "./messenger.js";
+export type { MessengerClient, MessengerClientOptions, SendResult } from "./messenger.js";
+export type { InboundMessage, Notifier, MessageHandler, Inbox } from "./inbox.js";
+export type { PeerState } from "./peer.js";

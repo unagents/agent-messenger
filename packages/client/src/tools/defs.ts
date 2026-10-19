@@ -1,0 +1,186 @@
+import type { Peer } from "@agent-hand/messenger-protocol";
+import type { InboundMessage } from "../inbox.js";
+import { VERSION } from "../version.js";
+import type { ToolDef, ToolResult } from "./types.js";
+
+export const INSTRUCTIONS = `agent-messenger v${VERSION}
+
+You are connected to agent-messenger. Other Claude Code sessions on this machine AND on remote hosts can find you and send you messages.
+
+Inbound traffic arrives in the conversation as one of:
+- "[agent-messenger] 未読 N 件（from <name>@<host>）…" — an unread notice. Call check_messages to read the text, reply with send_message if needed, then resume your work.
+- "[agent-messenger] ping（from <name>@<host>）" or "…）: <subject>" — the sender is alive and working (subject = what it is working on, if given). Nothing to read, no reply needed.
+- "[agent-messenger] message from <name>@<host>" followed by the text — sent with delivery "push". Reply with send_message if needed, then resume your work.
+
+Tools:
+- list_peers: discover sessions (scope: all / host / directory / repo)
+- send_message: send to a peer by name or id (cross-host). delivery "pull" (default) = the receiver sees only an unread notice; "push" = the text is shown directly
+- send_ping: send a liveness signal, optionally with a one-line subject such as the task id (e.g. periodically while working, so the orchestrator can tell progress from a stall)
+- set_name: give this session a stable name (e.g. "master-cap", "agent-messenger") so others can address it by name
+- set_summary: describe what you are working on (visible in list_peers)
+- check_messages: read unread message texts. Notices are delivered into the conversation automatically (via the session inbox socket, or via channel push when Claude Code was started with --dangerously-load-development-channels server:agent-messenger); call check_messages any time to read.
+
+On start, call set_name (if not already named) and set_summary.`;
+
+function text(t: string, isError = false): ToolResult {
+  return isError ? { content: [{ type: "text", text: t }], isError: true } : { content: [{ type: "text", text: t }] };
+}
+
+export function formatPeer(p: Peer): string {
+  const parts = [`ID: ${p.id}`];
+  if (p.name) parts.push(`Name: ${p.name}`);
+  parts.push(`Host: ${p.hostname}`, `PID: ${p.pid}`, `CWD: ${p.cwd}`);
+  if (p.git_root) parts.push(`Repo: ${p.git_root}`);
+  if (p.tty) parts.push(`TTY: ${p.tty}`);
+  if (p.summary) parts.push(`Summary: ${p.summary}`);
+  parts.push(`Last seen: ${p.last_seen}`);
+  return parts.join("\n  ");
+}
+
+export function formatMessage(m: InboundMessage): string {
+  const who = m.from_name ? `${m.from_name} (${m.from_id})` : m.from_id;
+  const host = m.from_hostname ? `@${m.from_hostname}` : "";
+  return `From ${who}${host} at ${m.sent_at}:\n${m.text}`;
+}
+
+/** The six tools. Descriptions carry no version prefix; `toolDescriptors()` adds it. */
+export const TOOL_DEFS: readonly ToolDef[] = [
+  {
+    name: "list_peers",
+    description:
+      "List other Claude Code sessions connected to the broker (id, name, hostname, cwd, repo, summary).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        scope: {
+          type: "string",
+          enum: ["all", "host", "directory", "repo"],
+          description:
+            '"all" = every host (default). "host" = same hostname. "directory" = same cwd. "repo" = same git repository.',
+        },
+      },
+    },
+    requiresRegistration: false,
+    async handler(args, ctx) {
+      const scope = (typeof args.scope === "string" ? args.scope : "all") as "all" | "host" | "directory" | "repo";
+      const peers = await ctx.broker.post("/list-peers", {
+        scope,
+        cwd: ctx.peer.cwd,
+        git_root: ctx.peer.gitRoot,
+        hostname: ctx.peer.hostname,
+        exclude_id: ctx.peer.id ?? undefined,
+      });
+      if (peers.length === 0) return text(`No other sessions found (scope: ${scope}).`);
+      return text(`Found ${peers.length} peer(s) (scope: ${scope}):\n\n${peers.map(formatPeer).join("\n\n")}`);
+    },
+  },
+  {
+    name: "send_message",
+    description:
+      "Send a message to another Claude Code session by peer name or id (from list_peers). Works across hosts.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        to: { type: "string", description: "Target peer name or id" },
+        message: { type: "string", description: "Message text" },
+        delivery: {
+          type: "string",
+          enum: ["pull", "push"],
+          description:
+            '"pull" (default) = the receiver sees only an unread notice (sender shown) and reads the text with check_messages. "push" = the text is shown in the receiver\'s conversation directly.',
+        },
+      },
+      required: ["to", "message"],
+    },
+    requiresRegistration: true,
+    async handler(args, ctx) {
+      const delivery = args.delivery === undefined ? "pull" : String(args.delivery);
+      if (delivery !== "pull" && delivery !== "push") return text(`Invalid delivery: ${delivery} (use "pull" or "push")`, true);
+      const r = await ctx.broker.post("/send-message", {
+        from_id: ctx.peer.id ?? undefined,
+        from_name: ctx.peer.name,
+        to: String(args.to),
+        text: String(args.message),
+        mode: delivery,
+      });
+      if (!r.ok) return text(`Failed to send: ${r.error}`, true);
+      const label = r.to_name ? `${r.to_name} (${r.to_id})` : r.to_id;
+      return text(`Message sent to ${label} (delivery: ${delivery}).`);
+    },
+  },
+  {
+    name: "send_ping",
+    description:
+      "Send a liveness signal to a peer, optionally with a one-line subject (e.g. the task id or name being worked on). The receiver sees a one-line ping notice (sender and subject shown), nothing to read or reply to. Use it periodically during long work so the orchestrator can tell progress from a stall.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        to: { type: "string", description: "Target peer name or id" },
+        subject: {
+          type: "string",
+          description: "Optional one-line subject, e.g. the task id or name being worked on. Delivered as the message text.",
+        },
+      },
+      required: ["to"],
+    },
+    requiresRegistration: true,
+    async handler(args, ctx) {
+      const r = await ctx.broker.post("/send-message", {
+        from_id: ctx.peer.id ?? undefined,
+        from_name: ctx.peer.name,
+        to: String(args.to),
+        text: args.subject === undefined ? "" : String(args.subject),
+        mode: "ping",
+      });
+      if (!r.ok) return text(`Failed to send: ${r.error}`, true);
+      const label = r.to_name ? `${r.to_name} (${r.to_id})` : r.to_id;
+      return text(`Ping sent to ${label}.`);
+    },
+  },
+  {
+    name: "set_name",
+    description: "Set a stable name for this session so other peers can address it by name.",
+    inputSchema: {
+      type: "object",
+      properties: { name: { type: "string", description: "Name, e.g. the session name" } },
+      required: ["name"],
+    },
+    requiresRegistration: true,
+    async handler(args, ctx) {
+      const newName = String(args.name);
+      const r = await ctx.broker.post("/set-name", { id: ctx.peer.id as string, name: newName });
+      if (!r.ok) return text(`Failed: ${r.error}`, true);
+      ctx.peer.name = newName;
+      return text(`Name set: "${newName}"`);
+    },
+  },
+  {
+    name: "set_summary",
+    description: "Set a 1-2 sentence summary of what this session is working on (visible in list_peers).",
+    inputSchema: {
+      type: "object",
+      properties: { summary: { type: "string" } },
+      required: ["summary"],
+    },
+    requiresRegistration: true,
+    async handler(args, ctx) {
+      const summary = String(args.summary);
+      const r = await ctx.broker.post("/set-summary", { id: ctx.peer.id as string, summary });
+      if (!r.ok) return text(`Failed: ${r.error}`, true);
+      ctx.peer.summary = summary;
+      return text(`Summary updated: "${summary}"`);
+    },
+  },
+  {
+    name: "check_messages",
+    description:
+      "Read and acknowledge unread messages from other sessions (the text behind an unread notice). Safe to call any time.",
+    inputSchema: { type: "object", properties: {} },
+    requiresRegistration: true,
+    async handler(_args, ctx) {
+      const list = await ctx.inbox.checkMessages();
+      if (list.length === 0) return text("No new messages.");
+      return text(`${list.length} message(s):\n\n${list.map(formatMessage).join("\n\n---\n\n")}`);
+    },
+  },
+];

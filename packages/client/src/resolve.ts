@@ -35,7 +35,12 @@ export type Logger = (msg: string) => void;
  *   3. discover UDP broadcast probe, first broker that answers
  *   4. local    127.0.0.1:PORT (caller may auto-launch)
  */
-export async function resolveBroker(cfg: ClientConfig, broker: BrokerClient, log: Logger): Promise<ResolvedBroker> {
+export async function resolveBroker(
+  cfg: ClientConfig,
+  broker: BrokerClient,
+  log: Logger,
+  brokers?: string[]
+): Promise<ResolvedBroker> {
   const done = (r: ResolvedBroker): ResolvedBroker => {
     broker.setUrl(r.url);
     return r;
@@ -48,11 +53,12 @@ export async function resolveBroker(cfg: ClientConfig, broker: BrokerClient, log
   }
 
   // 2. config file
-  const configured = readConfigBrokers(cfg);
+  const configured = brokers === undefined ? readConfigBrokers(cfg) : brokers.map((s) => normalizeUrl(s, cfg.port));
+  const configSource = brokers === undefined ? `config ${cfg.configFile}` : "config (options)";
   for (const url of configured) {
     if (await broker.health(url, 1500)) {
       const host = hostOf(url);
-      return done({ url, host, source: `config ${cfg.configFile}`, isLocal: isLocalHost(host) });
+      return done({ url, host, source: configSource, isLocal: isLocalHost(host) });
     }
     log(`config broker not reachable: ${url}`);
   }
