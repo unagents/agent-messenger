@@ -2,7 +2,7 @@ import type { InboundMessage } from '@agent-hand/messenger-client'
 
 declare module 'nitropack/types' {
   interface NitroRuntimeHooks {
-    /** Fired for every inbound message when at least one listener existed at first connect. */
+    /** Fired for inbound messages while at least one listener exists; without a listener messages are left for `checkMessages()`. */
     'messenger:message': (message: InboundMessage) => void | Promise<void>
   }
 }

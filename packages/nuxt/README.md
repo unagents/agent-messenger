@@ -25,7 +25,7 @@ export default defineNuxtConfig({
 })
 ```
 
-Requires Node >= 20 (Nuxt 4.5 needs Node >= 22.19) and Nuxt >= 4.
+Requires Nuxt >= 4 and Node `^22.19.0 || ^24.11.0 || >=26` (the range of Nuxt 4.5).
 
 ## runtimeConfig
 
@@ -84,6 +84,8 @@ whenever a listener is added or removed, so plugin order does not matter):
   listener throws, the message stays buffered and is handed to **all** listeners again about 1 s later.
 - No listener: nothing is consumed. Messages stay on the broker / in the client buffer and are read with
   `useMessenger().checkMessages()`.
+- The check is made for every delivery. When a listener appears later, the unread backlog (messages that arrived while
+  nobody listened and were not pulled) is handed to the hook together with the next message.
 
 Rules:
 
@@ -120,6 +122,22 @@ texts and error messages as the stdio client (for example `Invalid delivery: bog
 are added per request through the toolkit's `mcp:config:resolved` hook; a tool with the same name that you define yourself
 is kept and the module's is skipped. They also appear on named handlers (`/mcp/<name>`). Set `mcp.instructions` yourself if
 you want the messenger usage text.
+
+**Security: `/mcp` has no authentication of its own.** Anyone who can reach the route can call `send_message`
+(with `push`, the text appears directly in the receiver's conversation), `check_messages` (reads and acknowledges the
+inbox, competing with your hook) and `set_name`. The tools act through this server's peer, so this also bypasses a broker
+`AGENT_MESSENGER_TOKEN`. Do not expose the route, or protect `/mcp*`, for example with a Nitro server middleware
+(or the toolkit's handler `middleware`):
+
+```ts
+// server/middleware/mcp-auth.ts
+export default defineEventHandler((event) => {
+  if (!getRequestURL(event).pathname.startsWith('/mcp')) return
+  if (getHeader(event, 'authorization') !== `Bearer ${process.env.MCP_TOKEN}`) {
+    throw createError({ statusCode: 401 })
+  }
+})
+```
 
 Without the toolkit the module still works and `/mcp` does not exist; `zod` and the toolkit are never imported then.
 

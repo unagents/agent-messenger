@@ -174,9 +174,9 @@ describe('waitReady', () => {
 })
 
 describe('listenerCount', () => {
-  it('reads _hooks and falls back to 1 when unknown', () => {
+  it('reads _hooks and falls back to 0 (pull) when unknown', () => {
     expect(listenerCount({ _hooks: { x: [() => {}, () => {}] } }, 'x')).toBe(2)
     expect(listenerCount({ _hooks: {} }, 'x')).toBe(0)
-    expect(listenerCount({}, 'x')).toBe(1)
+    expect(listenerCount({}, 'x')).toBe(0)
   })
 })

@@ -45,7 +45,7 @@ function errMsg(e: unknown): string {
 }
 
 export function startMessenger(deps: StartDeps): MessengerEntry {
-  const log = deps.log ?? ((m: string) => console.error(`[messenger-nuxt] ${m}`))
+  const log = deps.log ?? ((m: string) => console.log(`[messenger-nuxt] ${m}`))
   const retryMs = deps.retryMs ?? CONNECT_RETRY_MS
   const create = deps.create ?? createMessengerClient
   const store = getStore(deps.global)
@@ -72,11 +72,21 @@ export function startMessenger(deps: StartDeps): MessengerEntry {
   // SQ-1 (decided by w-cap/user): the mode follows the listener set at every delivery, not only at first connect.
   // A client handler is registered exactly while the hook has a listener (the library consumes every message
   // once any handler exists); without one nothing is consumed and the app pulls via checkMessages().
+  // The relay re-checks the listener set on every delivery, so a change that bypassed `watchListeners`
+  // (removeAllHooks, a saved `hook` reference, ...) still cannot consume a message nobody listens to:
+  // it throws before the hook is called (no ack, message stays buffered) and drops the handler.
+  const guardedForward = async (m: InboundMessage): Promise<void> => {
+    if (!selectReceiveMode(deps.hasListeners)) {
+      refresh()
+      throw new Error('no messenger:message listener (left for pull)')
+    }
+    await deps.forward(m)
+  }
   const refresh = (): void => {
     if (stopped || !isConnected) return
     const hook = selectReceiveMode(deps.hasListeners)
     if (hook && !unsub) {
-      unsub = client.onMessage(deps.forward)
+      unsub = client.onMessage(guardedForward)
     }
     else if (!hook && unsub) {
       unsub()
@@ -144,10 +154,21 @@ export function selectReceiveMode(hasListeners: () => boolean): boolean {
   return hasListeners()
 }
 
-/** Number of listeners of a hookable hook. `_hooks` is private in hookable 5; unknown => assume 1 (hook mode). */
+let warnedNoHooksMap = false
+
+/**
+ * Number of listeners of a hookable hook. `_hooks` is private in hookable 5.
+ * Unknown => 0 (pull mode: nothing is consumed), with one warning.
+ */
 export function listenerCount(hooks: unknown, name: string): number {
   const map = (hooks as { _hooks?: Record<string, unknown[] | undefined> })._hooks
-  if (!map) return 1
+  if (!map) {
+    if (!warnedNoHooksMap) {
+      warnedNoHooksMap = true
+      console.warn('[messenger-nuxt] cannot read the hook listener table; staying in pull mode (use checkMessages())')
+    }
+    return 0
+  }
   return map[name]?.length ?? 0
 }
 

@@ -5,6 +5,7 @@
 // usage: PG_TMP=<isolated dir> node measure.mjs <scenario> <log-dir>
 //   scenario: hook   (a, b1, b2, c, d1: no toolkit, one hook listener)
 //             pull   (b3: no listener, app pulls via /api/check)
+//             late   (SQ-1: a listener attached after startup; the next message goes to the hook)
 //             mcp    (d2, d3, d4: toolkit before this module)
 //             mcp-after (d5: toolkit after this module)
 // Isolation: broker 127.0.0.1:17945, nuxt 127.0.0.1:17946, discovery off, autoStartBroker off, own HOME, empty env.
@@ -148,7 +149,7 @@ function startNuxt(extraEnv, name) {
     "nuxt",
     "npm",
     ["--prefix", NUXT_PKG, "run", "dev", "--", "--host", "127.0.0.1", "--port", "17946"],
-    { ...base, NUXT_TELEMETRY_DISABLED: "1", NITRO_NO_UNIX_SOCKET: "1", ...extraEnv },
+    { ...base, AGENT_MESSENGER_PORT: "17945", NUXT_TELEMETRY_DISABLED: "1", NITRO_NO_UNIX_SOCKET: "1", ...extraEnv },
     nuxtLogPath,
   );
 }
@@ -174,6 +175,7 @@ async function main() {
   const epoch = Date.now();
   if (scenario === "hook") await scenarioHook(epoch);
   else if (scenario === "pull") await scenarioPull(epoch);
+  else if (scenario === "late") await scenarioLate(epoch);
   else if (scenario === "mcp" || scenario === "mcp-after") await scenarioMcp(epoch);
   else throw new Error(`unknown scenario ${scenario}`);
 }
@@ -246,8 +248,8 @@ async function scenarioHook(epoch) {
   const bundle = readFileSync(join(NUXT_PKG, "playground/.nuxt/dev/index.mjs"), "utf8");
   check(
     "d1 /mcp is absent without the toolkit (not a JSON-RPC answer; no toolkit in the nitro bundle)",
-    !body.includes('"jsonrpc"') && r.status !== 200 && !bundle.includes("mcp-toolkit"),
-    `HTTP ${r.status}`,
+    !body.includes('"jsonrpc"') && r.status !== 200 && !bundle.includes("mcp-toolkit") && !/from ['"]zod/.test(bundle),
+    `HTTP ${r.status}; bundle=playground/.nuxt/dev/index.mjs mcp-toolkit hits=${bundle.split("mcp-toolkit").length - 1} zod-import hits=${(bundle.match(/from ['"]zod/g) ?? []).length}`,
   );
 
   // (a2) worker reload
@@ -301,6 +303,28 @@ async function scenarioPull(epoch) {
   check("b3 message stays pullable and checkMessages() returns it", chk.status === 200 && chk.text.includes(t));
   const again = await get("/api/check");
   check("b3 second check is empty (acked by the pull)", again.text === "[]", again.text);
+}
+
+async function scenarioLate(epoch) {
+  startNuxt({ PG_NO_LISTENER: "1" }, "late-nuxt.log");
+  await ready();
+  await waitFor(async () => ((await peers()).length ? true : null), 30000, "peer nuxt-pg");
+  check("late: starts in pull mode", (await nuxtLog()).includes("mode: pull"));
+  const a = `late-A-${epoch}`;
+  await cli("send", "nuxt-pg", a);
+  await sleep(3000);
+  const r0 = await get("/api/received");
+  check("late: before any listener the message is not delivered to a hook", r0.text === "[]", r0.text);
+  const at = await get("/api/listen");
+  say(`/api/listen -> ${at.text}`);
+  const b = `late-B-${epoch}`;
+  await cli("send", "nuxt-pg", b);
+  await waitFor(async () => (await get("/api/received")).text.includes(b), 15000, "hook delivery of B");
+  const r1 = await get("/api/received");
+  check("late: after the listener appeared the next message goes to the hook", r1.text.includes(b), r1.text);
+  check("late: the unread backlog (A) flows to the hook too", r1.text.includes(a));
+  const chk = await get("/api/check");
+  check("late: nothing is left to pull", chk.text === "[]", chk.text);
 }
 
 async function scenarioMcp(epoch) {

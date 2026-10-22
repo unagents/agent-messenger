@@ -20,7 +20,7 @@
     "dist"
   ],
   "engines": {
-    "node": ">=20"
+    "node": "^22.19.0 || ^24.11.0 || >=26.0.0"
   },
   "scripts": {
     "build": "nuxt-module-build build",
