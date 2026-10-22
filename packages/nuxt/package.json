@@ -1,0 +1,56 @@
+{
+  "name": "@agent-hand/messenger-nuxt",
+  "version": "0.7.0",
+  "description": "Nuxt module for agent-messenger: one Nuxt server = one peer (library API of @agent-hand/messenger-client).",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "http://192.168.1.202/gitea/agent-hand/messenger.git",
+    "directory": "packages/nuxt"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/types.d.mts",
+      "import": "./dist/module.mjs"
+    }
+  },
+  "main": "./dist/module.mjs",
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "nuxt-module-build build",
+    "dev": "nuxi dev playground",
+    "dev:prepare": "nuxt-module-build build --stub",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@agent-hand/messenger-client": "0.7.0",
+    "@nuxt/kit": "^4.5.2"
+  },
+  "peerDependencies": {
+    "@nuxtjs/mcp-toolkit": "^0.24.2",
+    "zod": "^4.1.13"
+  },
+  "peerDependenciesMeta": {
+    "@nuxtjs/mcp-toolkit": {
+      "optional": true
+    },
+    "zod": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.1",
+    "@nuxt/module-builder": "1.0.3",
+    "@nuxt/schema": "4.5.2",
+    "@nuxtjs/mcp-toolkit": "0.24.2",
+    "hookable": "^5.5.3",
+    "nuxt": "4.5.2",
+    "zod": "^4.1.13"
+  }
+}

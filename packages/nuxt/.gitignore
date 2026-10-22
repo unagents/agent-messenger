@@ -1,0 +1,6 @@
+.nuxt/
+.output/
+.data/
+playground/.nuxt/
+playground/.output/
+playground/.data/
