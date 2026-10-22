@@ -12,6 +12,7 @@ Claude Code セッション同士（同一ホスト・別ホスト）でメッ�
 | `client/` | `@agent-hand/messenger-client` | Gitea Packages | Claude Code セッションごとに起動する stdio MCP サーバー（node 版、runtime 依存ゼロ）。broker に登録し、ツールを提供し、受信メッセージをセッションへ投入する |
 | `client-darwin-arm64/` `client-linux-x64/` | `@agent-hand/messenger-client-<platform>-<arch>` | Gitea Packages | client のネイティブ実行ファイル（PerryTS で `client/src/main.ts` を compile）。`os` / `cpu` 付き。CLI の `mcp` はこれが取得できればこちらを使い、無ければ node 版に落ちる |
 | `protocol/` | `@agent-hand/messenger-protocol` | Gitea Packages | broker HTTP API・UDP 発見・session socket の型と定数。broker の runtime 依存、client / cli は型のみ参照 |
+| `nuxt/` | `@agent-hand/messenger-nuxt` | Gitea Packages | Nuxt 4 module（0.8.0 で新規）。Nuxt サーバー 1 つを 1 peer として broker に接続する。下記「ツール core と Nuxt module（0.8.0）」 |
 
 `legacy/`（`src/` `bin/` `loader/` `test/`）は 0.4.0 までの JavaScript 実装。client / broker の互換テストと protocol の定数突き合わせが参照する。ビルド・配布の対象外。
 
@@ -78,6 +79,28 @@ claude --dangerously-load-development-channels server:agent-messenger
 | `set_name` | このセッションに名前を付ける（他 peer が名前で宛先指定できる） |
 | `set_summary` | 作業内容の 1〜2 文（list_peers に表示） |
 | `check_messages` | 未読メッセージの取得と既読化。channel push 無しの環境では必須 |
+
+## ツール core と Nuxt module（0.8.0）
+
+ツール定義と受信処理を、stdio MCP から切り離してライブラリとして使えるようにした。stdio の挙動（ツール一覧・文言・instructions・capabilities）は変えていない（75e2ada から取った golden fixture と一致するテストあり）。
+
+- `@agent-hand/messenger-client/tools`: `TOOL_DEFS` / `INSTRUCTIONS` / `toolDescriptors()` / `createToolRegistry(ctx)`（`list()` と `call(name, args)`）/ `formatPeer` / `formatMessage`
+- `@agent-hand/messenger-client`（`"."`）に `createMessengerClient(options?)` を追加。`connect()` / `close()` / `send` / `ping` / `listPeers` / `setName` / `setSummary` / `checkMessages` / `onMessage(handler)`。`autoStartBroker` の既定は `false`。既存の export は全て維持
+- 受信 handler の再配信は同一プロセス・同一 peer id の範囲のみ（約 1 s 後に再投入）。プロセス再起動や再登録（新 id）を跨いだ再配信はしない。handler は冪等にし、恒久的に失敗する入力は自分で握りつぶす（失敗し続ける handler は無制限に再試行される）
+- 1 プロセスに `createMessengerClient` を複数作らない（broker は同じ pid + hostname を 1 peer として扱う）
+
+`@agent-hand/messenger-nuxt`（`packages/nuxt/`）は上記ライブラリを使う Nuxt 4 module。導入手順・runtimeConfig・`useMessenger()`・`messenger:message` hook・`/mcp` のセキュリティ注意は `packages/nuxt/README.md` を参照。
+
+```ts
+// nuxt.config.ts
+export default defineNuxtConfig({
+  modules: ['@agent-hand/messenger-nuxt'],
+  messenger: { name: 'my-nuxt', brokers: ['http://127.0.0.1:7901'] },
+})
+```
+
+- `messenger:message` に listener があればそこへ配信（全 listener 成功で ack、失敗は再配信）。無ければ消費せず `useMessenger().checkMessages()` で取得
+- `@nuxtjs/mcp-toolkit` を入れた場合のみ、6 ツールを `/mcp` に追加する。`/mcp` 自体に認証は無く、broker の token を迂回できる点に注意
 
 ## CLI
 
@@ -168,7 +191,7 @@ npx -y @agent-hand/messenger send master-cap "作業完了"
 npm ci
 npm run build        # protocol を先に build してから全 workspace（unbuild → packages/*/dist）
 npm run typecheck    # tsgo（@typescript/native-preview）
-npm test             # vitest（broker 26 / cli 16 / client 22 / protocol 4）
+npm test             # vitest（broker 26 / cli 16 / client 42 / nuxt 50 / protocol 4）
 ```
 
 テストは loopback で broker・疑似 npm registry を立てる（192.168.1.202 には接続しない）。
@@ -189,7 +212,7 @@ node scripts/e2e-mcp.mjs [--broker direct|cli]
 
 ## 公開手順
 
-`docs/release-0.7.0.md`（0.7.0 の変更点・publish 順・broker 更新・互換性）。基本手順は `docs/release-0.5.0.md`（publish の順序: protocol → broker → client → platform 2 種 → cli、broker 切替、ロールバック）。
+`docs/release-0.8.0.md`（0.8.0 の変更点・publish 順・broker 更新・互換性）、`docs/release-0.7.0.md`（0.7.0 の変更点）。基本手順は `docs/release-0.5.0.md`（publish の順序: protocol → broker → client → platform 2 種 → cli、broker 切替、ロールバック）。
 
 ## 既知の課題
 
