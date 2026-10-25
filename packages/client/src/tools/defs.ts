@@ -1,4 +1,4 @@
-import type { Peer } from "@agent-hand/messenger-protocol";
+import type { Peer } from "@unagents/messenger-protocol";
 import type { InboundMessage } from "../inbox.js";
 import { VERSION } from "../version.js";
 import type { ToolDef, ToolResult } from "./types.js";

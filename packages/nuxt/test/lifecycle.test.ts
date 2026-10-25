@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { InboundMessage, MessengerClient } from '@agent-hand/messenger-client'
+import type { InboundMessage, MessengerClient } from '@unagents/messenger-client'
 import { getStore, listenerCount, selectReceiveMode, startMessenger, waitReady } from '../src/runtime/server/lib/lifecycle'
 
 interface Fake {

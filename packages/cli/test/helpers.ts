@@ -137,11 +137,11 @@ export function makeStub(
   return dir;
 }
 
-/** Stub `@agent-hand/messenger-client`: node entry prints its version and argv. */
+/** Stub `@unagents/messenger-client`: node entry prints its version and argv. */
 export function clientStub(root: string, version: string): string {
   return makeStub(
     root,
-    "@agent-hand/messenger-client",
+    "@unagents/messenger-client",
     version,
     { exports: { ".": { import: "./dist/index.mjs" } } },
     {
@@ -155,7 +155,7 @@ export function clientStub(root: string, version: string): string {
 
 /** Stub native platform package for this host: a shell script as `bin`. */
 export function nativeStub(root: string, version: string, opts: { broken?: boolean } = {}): string {
-  const name = `@agent-hand/messenger-client-${process.platform}-${process.arch}`;
+  const name = `@unagents/messenger-client-${process.platform}-${process.arch}`;
   // broken: fails like a binary needing a newer glibc (message on stderr, exit 1)
   const script = opts.broken
     ? "#!/bin/sh\necho \"messenger-client: version GLIBC_2.39 not found\" >&2\nexit 1\n"
@@ -169,11 +169,11 @@ export function nativeStub(root: string, version: string, opts: { broken?: boole
   );
 }
 
-/** Stub `@agent-hand/messenger-broker` with a `./main` export. */
+/** Stub `@unagents/messenger-broker` with a `./main` export. */
 export function brokerStub(root: string, version: string): string {
   return makeStub(
     root,
-    "@agent-hand/messenger-broker",
+    "@unagents/messenger-broker",
     version,
     { exports: { ".": { import: "./dist/index.mjs" }, "./main": "./dist/main.mjs" } },
     {

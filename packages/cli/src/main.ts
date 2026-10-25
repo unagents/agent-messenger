@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * `npx -y @agent-hand/messenger <mcp|broker|status|peers|send|discover>`
+ * `npx -y @unagents/messenger <mcp|broker|status|peers|send|discover>`
  *
  * Fetches the broker / client packages from Gitea Packages (see config.ts / pkgs.ts),
  * caches them under ~/.agent-messenger/pkgs/ and runs them. `mcp` is the default.

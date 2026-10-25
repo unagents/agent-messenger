@@ -1,7 +1,7 @@
-import { createMessengerClient } from '@agent-hand/messenger-client'
-import type { InboundMessage, MessengerClient, MessengerClientOptions } from '@agent-hand/messenger-client'
+import { createMessengerClient } from '@unagents/messenger-client'
+import type { InboundMessage, MessengerClient, MessengerClientOptions } from '@unagents/messenger-client'
 
-const STORE_KEY = Symbol.for('@agent-hand/messenger-nuxt')
+const STORE_KEY = Symbol.for('@unagents/messenger-nuxt')
 export const CONNECT_RETRY_MS = 5000
 export const READY_TIMEOUT_MS = 10000
 

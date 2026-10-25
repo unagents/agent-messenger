@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { TOOL_DEFS, createToolRegistry, toolDescriptors } from '@agent-hand/messenger-client/tools'
-import type { MessengerClient } from '@agent-hand/messenger-client'
+import { TOOL_DEFS, createToolRegistry, toolDescriptors } from '@unagents/messenger-client/tools'
+import type { MessengerClient } from '@unagents/messenger-client'
 import { toMcpToolDefinitions } from '../src/runtime/server/lib/mcp-defs'
 
 interface Post {

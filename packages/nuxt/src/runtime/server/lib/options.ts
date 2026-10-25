@@ -1,4 +1,4 @@
-import type { MessengerClientOptions } from '@agent-hand/messenger-client'
+import type { MessengerClientOptions } from '@unagents/messenger-client'
 
 function str(v: unknown): string | undefined {
   return typeof v === 'string' && v !== '' ? v : undefined

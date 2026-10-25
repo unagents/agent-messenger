@@ -1,7 +1,7 @@
 import type { Socket } from "node:dgram";
 import { listen, type Listener } from "listhen";
 import { toNodeListener } from "h3";
-import { DISCOVERY_KEY, DISCOVERY_REPLY_VALUE, type DiscoveryReply } from "@agent-hand/messenger-protocol";
+import { DISCOVERY_KEY, DISCOVERY_REPLY_VALUE, type DiscoveryReply } from "@unagents/messenger-protocol";
 import { resolveConfig, type BrokerOptions } from "./config.js";
 import { BrokerState } from "./state.js";
 import { BrokerHandlers } from "./handlers.js";

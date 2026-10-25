@@ -9,8 +9,8 @@ import {
   type App,
   type H3Event,
 } from "h3";
-import type { BrokerErrorResponse, BrokerPostRoute, HealthResponse, RelayMessagesRequest } from "@agent-hand/messenger-protocol";
-import { BROKER_POST_ROUTES, HEALTH_ROUTE, MESH_SYNC_ROUTE, RELAY_ROUTE } from "@agent-hand/messenger-protocol";
+import type { BrokerErrorResponse, BrokerPostRoute, HealthResponse, RelayMessagesRequest } from "@unagents/messenger-protocol";
+import { BROKER_POST_ROUTES, HEALTH_ROUTE, MESH_SYNC_ROUTE, RELAY_ROUTE } from "@unagents/messenger-protocol";
 import type { BrokerHandlers } from "./handlers.js";
 
 export interface HttpAppOptions {

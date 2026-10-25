@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import type { JsonObjectSchema } from '@agent-hand/messenger-client/tools'
+import type { JsonObjectSchema } from '@unagents/messenger-client/tools'
 
 /**
  * Convert the JSON Schema subset used by the tool definitions into a zod v4 raw shape.

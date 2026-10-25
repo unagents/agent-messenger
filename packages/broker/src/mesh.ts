@@ -5,7 +5,7 @@ import {
   MESH_SYNC_ROUTE,
   type MeshSyncRequest,
   type MeshSyncResponse,
-} from "@agent-hand/messenger-protocol";
+} from "@unagents/messenger-protocol";
 import type { BrokerHandlers } from "./handlers.js";
 import { log } from "./log.js";
 

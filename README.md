@@ -7,12 +7,12 @@ Claude Code セッション同士（同一ホスト・別ホスト）でメッ�
 
 | ディレクトリ | パッケージ | 置き場 | 内容 |
 |---|---|---|---|
-| `cli/` | `@agent-hand/messenger` | Verdaccio `http://192.168.1.202/npm/` | `npx -y @agent-hand/messenger <command>` の入口（citty）。broker / client を Gitea Packages から取得して `~/.agent-messenger/pkgs/` にキャッシュし、起動する。旧 loader の後継 |
-| `broker/` | `@agent-hand/messenger-broker` | Gitea Packages `http://192.168.1.202/gitea/api/packages/agent-hand/npm/` | 1 台に 1 つ動かす HTTP デーモン（h3 + listhen、node）。peer の登録とメッセージ中継。状態は `~/.agent-messenger/broker.json` |
-| `client/` | `@agent-hand/messenger-client` | Gitea Packages | Claude Code セッションごとに起動する stdio MCP サーバー（node 版、runtime 依存ゼロ）。broker に登録し、ツールを提供し、受信メッセージをセッションへ投入する |
-| `client-darwin-arm64/` `client-linux-x64/` | `@agent-hand/messenger-client-<platform>-<arch>` | Gitea Packages | client のネイティブ実行ファイル（PerryTS で `client/src/main.ts` を compile）。`os` / `cpu` 付き。CLI の `mcp` はこれが取得できればこちらを使い、無ければ node 版に落ちる |
-| `protocol/` | `@agent-hand/messenger-protocol` | Gitea Packages | broker HTTP API・UDP 発見・session socket の型と定数。broker の runtime 依存、client / cli は型のみ参照 |
-| `nuxt/` | `@agent-hand/messenger-nuxt` | Gitea Packages | Nuxt 4 module（0.8.0 で新規）。Nuxt サーバー 1 つを 1 peer として broker に接続する。下記「ツール core と Nuxt module（0.8.0）」 |
+| `cli/` | `@unagents/messenger` | npmjs | `npx -y @unagents/messenger <command>` の入口（citty）。broker / client を npm registry から取得して `~/.agent-messenger/pkgs/` にキャッシュし、起動する。旧 loader の後継 |
+| `broker/` | `@unagents/messenger-broker` | npmjs | 1 台に 1 つ動かす HTTP デーモン（h3 + listhen、node）。peer の登録とメッセージ中継。状態は `~/.agent-messenger/broker.json` |
+| `client/` | `@unagents/messenger-client` | npmjs | Claude Code セッションごとに起動する stdio MCP サーバー（node 版、runtime 依存ゼロ）。broker に登録し、ツールを提供し、受信メッセージをセッションへ投入する |
+| `client-darwin-arm64/` `client-linux-x64/` | `@unagents/messenger-client-<platform>-<arch>` | npmjs | client のネイティブ実行ファイル（PerryTS で `client/src/main.ts` を compile）。`os` / `cpu` 付き。CLI の `mcp` はこれが取得できればこちらを使い、無ければ node 版に落ちる |
+| `protocol/` | `@unagents/messenger-protocol` | npmjs | broker HTTP API・UDP 発見・session socket の型と定数。broker の runtime 依存、client / cli は型のみ参照 |
+| `nuxt/` | `@unagents/messenger-nuxt` | npmjs | Nuxt 4 module（0.8.0 で新規）。Nuxt サーバー 1 つを 1 peer として broker に接続する。下記「ツール core と Nuxt module（0.8.0）」 |
 
 `legacy/`（`src/` `bin/` `loader/` `test/`）は 0.4.0 までの JavaScript 実装。client / broker の互換テストと protocol の定数突き合わせが参照する。ビルド・配布の対象外。
 
@@ -30,7 +30,7 @@ Claude Code セッション同士（同一ホスト・別ホスト）でメッ�
 ## 起動（npx で 202 の npm registry から）
 
 ```bash
-npx -y @agent-hand/messenger <command>
+npx -y @unagents/messenger <command>
 ```
 
 `<command>`: `mcp` / `broker` / `status` / `peers` / `send <name|id> <message...>`
@@ -41,7 +41,7 @@ npx -y @agent-hand/messenger <command>
 
 ```bash
 AGENT_MESSENGER_BIND=0.0.0.0 AGENT_MESSENGER_PORT=7901 \
-  npx -y @agent-hand/messenger broker
+  npx -y @unagents/messenger broker
 ```
 
 確認: `curl http://192.168.1.202:7901/health` → `{"status":"ok","version":"…","peers":N}`
@@ -52,7 +52,7 @@ AGENT_MESSENGER_BIND=0.0.0.0 AGENT_MESSENGER_PORT=7901 \
 claude mcp add --scope user --transport stdio agent-messenger \
   --env AGENT_MESSENGER_HOST=192.168.1.202 \
   --env AGENT_MESSENGER_PORT=7901 \
-  -- npx -y @agent-hand/messenger mcp
+  -- npx -y @unagents/messenger mcp
 ```
 
 セッションに固定名を付けたい場合はプロジェクトの `.mcp.json` で `AGENT_MESSENGER_NAME` を渡す（project scope が user scope より優先）。
@@ -84,17 +84,17 @@ claude --dangerously-load-development-channels server:agent-messenger
 
 ツール定義と受信処理を、stdio MCP から切り離してライブラリとして使えるようにした。stdio の挙動（ツール一覧・文言・instructions・capabilities）は変えていない（75e2ada から取った golden fixture と一致するテストあり）。
 
-- `@agent-hand/messenger-client/tools`: `TOOL_DEFS` / `INSTRUCTIONS` / `toolDescriptors()` / `createToolRegistry(ctx)`（`list()` と `call(name, args)`）/ `formatPeer` / `formatMessage`
-- `@agent-hand/messenger-client`（`"."`）に `createMessengerClient(options?)` を追加。`connect()` / `close()` / `send` / `ping` / `listPeers` / `setName` / `setSummary` / `checkMessages` / `onMessage(handler)`。`autoStartBroker` の既定は `false`。既存の export は全て維持
+- `@unagents/messenger-client/tools`: `TOOL_DEFS` / `INSTRUCTIONS` / `toolDescriptors()` / `createToolRegistry(ctx)`（`list()` と `call(name, args)`）/ `formatPeer` / `formatMessage`
+- `@unagents/messenger-client`（`"."`）に `createMessengerClient(options?)` を追加。`connect()` / `close()` / `send` / `ping` / `listPeers` / `setName` / `setSummary` / `checkMessages` / `onMessage(handler)`。`autoStartBroker` の既定は `false`。既存の export は全て維持
 - 受信 handler の再配信は同一プロセス・同一 peer id の範囲のみ（約 1 s 後に再投入）。プロセス再起動や再登録（新 id）を跨いだ再配信はしない。handler は冪等にし、恒久的に失敗する入力は自分で握りつぶす（失敗し続ける handler は無制限に再試行される）
 - 1 プロセスに `createMessengerClient` を複数作らない（broker は同じ pid + hostname を 1 peer として扱う）
 
-`@agent-hand/messenger-nuxt`（`packages/nuxt/`）は上記ライブラリを使う Nuxt 4 module。導入手順・runtimeConfig・`useMessenger()`・`messenger:message` hook・`/mcp` のセキュリティ注意は `packages/nuxt/README.md` を参照。
+`@unagents/messenger-nuxt`（`packages/nuxt/`）は上記ライブラリを使う Nuxt 4 module。導入手順・runtimeConfig・`useMessenger()`・`messenger:message` hook・`/mcp` のセキュリティ注意は `packages/nuxt/README.md` を参照。
 
 ```ts
 // nuxt.config.ts
 export default defineNuxtConfig({
-  modules: ['@agent-hand/messenger-nuxt'],
+  modules: ['@unagents/messenger-nuxt'],
   messenger: { name: 'my-nuxt', brokers: ['http://127.0.0.1:7901'] },
 })
 ```
@@ -106,9 +106,9 @@ export default defineNuxtConfig({
 
 ```bash
 export AGENT_MESSENGER_HOST=192.168.1.202
-npx -y @agent-hand/messenger status
-npx -y @agent-hand/messenger peers
-npx -y @agent-hand/messenger send master-cap "作業完了"
+npx -y @unagents/messenger status
+npx -y @unagents/messenger peers
+npx -y @unagents/messenger send master-cap "作業完了"
 ```
 
 ## broker の見つけ方（mcp / CLI）
@@ -178,7 +178,7 @@ npx -y @agent-hand/messenger send master-cap "作業完了"
 
 | 変数 | 既定 | 用途 |
 |---|---|---|
-| `AGENT_MESSENGER_REGISTRY` | Gitea Packages の URL | broker / client / platform package の取得元 |
+| `AGENT_MESSENGER_REGISTRY` | 取得元 registry の URL（既定 npmjs。Gitea Packages 等に上書き可） | broker / client / platform package の取得元 |
 | `AGENT_MESSENGER_BROKER_SPEC` / `AGENT_MESSENGER_CLIENT_SPEC` | `latest` | 取得する版（`1.2.3` / `file:…` など npm spec） |
 | `AGENT_MESSENGER_PKGS_DIR` | `~/.agent-messenger/pkgs` | キャッシュ先 |
 | `AGENT_MESSENGER_REFRESH`（旧 `AGENT_MESSENGER_CORE_REFRESH` も可） | なし | `1` で再取得 |
@@ -212,7 +212,7 @@ node scripts/e2e-mcp.mjs [--broker direct|cli]
 
 ## 公開手順
 
-`docs/release-0.8.0.md`（0.8.0 の変更点・publish 順・broker 更新・互換性）、`docs/release-0.7.0.md`（0.7.0 の変更点）。基本手順は `docs/release-0.5.0.md`（publish の順序: protocol → broker → client → platform 2 種 → cli、broker 切替、ロールバック）。
+`docs/release-0.9.0.md`（0.9.0: スコープ改名・npmjs 公開・移行）、`docs/release-0.8.0.md`（0.8.0 の変更点・publish 順・broker 更新・互換性）、`docs/release-0.7.0.md`（0.7.0 の変更点）。基本手順は `docs/release-0.5.0.md`（publish の順序: protocol → broker → client → platform 2 種 → cli、broker 切替、ロールバック）。
 
 ## 既知の課題
 

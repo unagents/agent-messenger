@@ -4,7 +4,7 @@ import { request } from "node:http";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Message, Peer } from "@agent-hand/messenger-protocol";
+import type { Message, Peer } from "@unagents/messenger-protocol";
 import { startBroker, type BrokerHandle } from "../src/index.js";
 
 const TOKEN = "mesh-token";

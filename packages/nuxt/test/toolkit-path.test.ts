@@ -3,8 +3,8 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import { defineMcpTool, registerToolFromDefinition } from '@nuxtjs/mcp-toolkit/server'
-import { createToolRegistry } from '@agent-hand/messenger-client/tools'
-import type { MessengerClient } from '@agent-hand/messenger-client'
+import { createToolRegistry } from '@unagents/messenger-client/tools'
+import type { MessengerClient } from '@unagents/messenger-client'
 import { toMcpToolDefinitions } from '../src/runtime/server/lib/mcp-defs'
 
 // Registers the adapter's definitions through the toolkit's own registration code

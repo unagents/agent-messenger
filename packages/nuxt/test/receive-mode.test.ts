@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createHooks } from 'hookable'
-import type { InboundMessage, MessengerClient } from '@agent-hand/messenger-client'
+import type { InboundMessage, MessengerClient } from '@unagents/messenger-client'
 import { createInbox } from '../../client/src/inbox'
 import { listenerCount, startMessenger, watchListeners } from '../src/runtime/server/lib/lifecycle'
 

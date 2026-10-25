@@ -37,11 +37,11 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = resolve(fileURLToPath(new URL("..", import.meta.url)));
-/** the CLI under test; E2E_CLI points at an installed copy (e.g. node_modules/@agent-hand/messenger/dist/main.mjs) */
+/** the CLI under test; E2E_CLI points at an installed copy (e.g. node_modules/@unagents/messenger/dist/main.mjs) */
 const CLI = process.env.E2E_CLI ?? join(ROOT, "packages", "cli", "dist", "main.mjs");
 const BROKER_MAIN = join(ROOT, "packages", "broker", "dist", "main.mjs");
 const TARGET = `${process.platform}-${process.arch}`;
-const NATIVE_PKG = `@agent-hand/messenger-client-${TARGET}`;
+const NATIVE_PKG = `@unagents/messenger-client-${TARGET}`;
 
 const args = process.argv.slice(2);
 const opt = (name, dflt) => {
@@ -351,7 +351,7 @@ async function mcpFlow(a, b, aName, bName) {
 }
 
 function loaderPicked(mcp) {
-  const m = mcp.stderr.match(/ready: (@agent-hand\/messenger-client[^\s]*)@/);
+  const m = mcp.stderr.match(/ready: (@unagents\/messenger-client[^\s]*)@/);
   return m ? m[1] : "(no install this run)";
 }
 
@@ -412,7 +412,7 @@ async function main() {
     health = broker.health;
   }
   if (!check("broker: /health", health && health.status === "ok", health ? `v${health.version} id=${health.id} port=${health.port}` : `no broker at ${BROKER_URL}${broker ? `\n${broker.stderr()}` : ""}`)) return;
-  if (broker && brokerMode === "cli") check("broker: installed through the cli", /ready: @agent-hand\/messenger-broker@/.test(broker.stderr()), broker.stderr().match(/ready: .*/)?.[0] ?? broker.stderr());
+  if (broker && brokerMode === "cli") check("broker: installed through the cli", /ready: @unagents\/messenger-broker@/.test(broker.stderr()), broker.stderr().match(/ready: .*/)?.[0] ?? broker.stderr());
 
   // token required
   const unauth = await fetch(`${BROKER_URL}/list-peers`, { method: "POST", body: "{}" });
@@ -451,7 +451,7 @@ async function main() {
       check("mcp native: loader picked the platform package", loaderPicked(a) === NATIVE_PKG, `${loaderPicked(a)}; cache: ${cacheEntries(pkgsNative).join(", ")}`);
       check("mcp native: node client not installed for auto mode", !cacheEntries(pkgsNative).some((e) => e === "messenger-client@latest"), cacheEntries(pkgsNative).join(", "));
     }
-    if (b) check("mcp node: loader picked the node client", loaderPicked(b) === "@agent-hand/messenger-client" || cacheEntries(pkgs).includes("messenger-client@latest"), `${loaderPicked(b)}; cache: ${cacheEntries(pkgs).join(", ")}`);
+    if (b) check("mcp node: loader picked the node client", loaderPicked(b) === "@unagents/messenger-client" || cacheEntries(pkgs).includes("messenger-client@latest"), `${loaderPicked(b)}; cache: ${cacheEntries(pkgs).join(", ")}`);
 
     // 3. session socket delivery
     const sockPath = join(TMP, "sess.sock");
@@ -525,7 +525,7 @@ async function main() {
       const fi = await f.initialize();
       check("fallback: mcp still answers initialize", fi.serverInfo?.name === "agent-messenger");
       check("fallback: loader reported the platform package missing", new RegExp(`${NATIVE_PKG.replace(/[/-]/g, "\\$&")} not available`).test(f.stderr), f.stderr.match(/not available[^\n]*/)?.[0] ?? f.stderr);
-      check("fallback: loader ran the node client", loaderPicked(f) === "@agent-hand/messenger-client", `${loaderPicked(f)}; cache: ${cacheEntries(pkgsFb).join(", ")}`);
+      check("fallback: loader ran the node client", loaderPicked(f) === "@unagents/messenger-client", `${loaderPicked(f)}; cache: ${cacheEntries(pkgsFb).join(", ")}`);
       const forced = await runCli(["mcp"], cliEnv(registry.url, join(TMP, "pkgs-forced"), { AGENT_MESSENGER_CLIENT: "native" }));
       check("fallback: AGENT_MESSENGER_CLIENT=native exits 1 when missing", forced.status === 1 && /cannot start|is not available/.test(forced.stderr), forced.stderr.trim().split("\n").pop());
       registry.publish(nativeDir);
@@ -540,7 +540,7 @@ async function main() {
   // 6. `agent-messenger broker` through the mock registry (extra port; skipped when it already is the broker)
   if (brokerMode !== "cli" && !REMOTE_HOST) {
     const bc = await startBrokerCli(registry.url, join(TMP, "pkgs-broker"), PORT + 2, false);
-    check("cli broker: installed from the mock registry and serves /health", bc.health && bc.health.status === "ok" && /ready: @agent-hand\/messenger-broker@/.test(bc.stderr()), bc.health ? `v${bc.health.version} ${bc.stderr().match(/ready: [^\n]*/)?.[0]}` : bc.stderr());
+    check("cli broker: installed from the mock registry and serves /health", bc.health && bc.health.status === "ok" && /ready: @unagents\/messenger-broker@/.test(bc.stderr()), bc.health ? `v${bc.health.version} ${bc.stderr().match(/ready: [^\n]*/)?.[0]}` : bc.stderr());
     const st = await runCli(["status"], cliEnv(registry.url, pkgs, { AGENT_MESSENGER_HOST: "127.0.0.1", AGENT_MESSENGER_PORT: String(PORT + 2) }));
     check("cli broker: cli status against it", st.status === 0 && st.stdout.startsWith("Broker: ok v"), st.stdout.split("\n")[0] || st.stderr);
     bc.proc.kill("SIGTERM");

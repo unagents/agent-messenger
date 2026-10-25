@@ -94,7 +94,7 @@ copyFileSync(binary, join(pkgDir, "bin", "messenger-client"));
 const manifest = {
   name: `${client.name}-${target}`,
   version: client.version,
-  description: `agent-messenger client, native ${target} build (PerryTS). Selected by @agent-hand/messenger over the node client when installable.`,
+  description: `agent-messenger client, native ${target} build (PerryTS). Selected by @unagents/messenger over the node client when installable.`,
   license: client.license,
   repository: { ...client.repository, directory: `packages/client-${target}` },
   os: [platform],

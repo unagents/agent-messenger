@@ -1,4 +1,4 @@
-import type { Message, Peer } from "@agent-hand/messenger-protocol";
+import type { Message, Peer } from "@unagents/messenger-protocol";
 import type { BrokerClient } from "./broker.js";
 import type { PeerState } from "./peer.js";
 import type { Logger } from "./resolve.js";

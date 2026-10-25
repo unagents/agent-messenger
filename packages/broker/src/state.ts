@@ -1,6 +1,6 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import type { Message, Peer, RelayedMessage } from "@agent-hand/messenger-protocol";
+import type { Message, Peer, RelayedMessage } from "@unagents/messenger-protocol";
 import { log } from "./log.js";
 
 /**

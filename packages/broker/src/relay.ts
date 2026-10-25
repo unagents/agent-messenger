@@ -1,5 +1,5 @@
-import type { RelayedMessage, RelayMessagesResponse, SendMessageResponse } from "@agent-hand/messenger-protocol";
-import { RELAY_ROUTE } from "@agent-hand/messenger-protocol";
+import type { RelayedMessage, RelayMessagesResponse, SendMessageResponse } from "@unagents/messenger-protocol";
+import { RELAY_ROUTE } from "@unagents/messenger-protocol";
 import { log } from "./log.js";
 import type { BrokerState } from "./state.js";
 

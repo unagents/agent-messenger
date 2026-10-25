@@ -2,11 +2,11 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 /** Packages fetched at runtime. */
-export const CLIENT_NAME = "@agent-hand/messenger-client";
-export const BROKER_NAME = "@agent-hand/messenger-broker";
+export const CLIENT_NAME = "@unagents/messenger-client";
+export const BROKER_NAME = "@unagents/messenger-broker";
 
-/** Default source: Gitea Packages npm registry (owner agent-hand). */
-export const DEFAULT_REGISTRY = "http://192.168.1.202/gitea/api/packages/agent-hand/npm/";
+/** Default source: npmjs. Gitea Packages: set AGENT_MESSENGER_REGISTRY (e.g. http://192.168.1.202/gitea/api/packages/unagents/npm/). */
+export const DEFAULT_REGISTRY = "https://registry.npmjs.org/";
 /** Default version spec for every package (`<name>@latest`). */
 export const DEFAULT_SPEC = "latest";
 /** Re-check a floating spec (tag / range) after this many hours. */
@@ -19,7 +19,7 @@ export const DEFAULT_PKGS_DIR = join(homedir(), ".agent-messenger", "pkgs");
  * are replaced; only the refresh flag still accepts its old name.
  */
 export const ENV = {
-  /** registry for the @agent-hand scope (was `AGENT_MESSENGER_CORE_REGISTRY`) */
+  /** registry for the @unagents scope (was `AGENT_MESSENGER_CORE_REGISTRY`) */
   REGISTRY: "AGENT_MESSENGER_REGISTRY",
   /** cache root (was `AGENT_MESSENGER_CORE_DIR`) */
   PKGS_DIR: "AGENT_MESSENGER_PKGS_DIR",
@@ -28,9 +28,9 @@ export const ENV = {
   REFRESH_LEGACY: "AGENT_MESSENGER_CORE_REFRESH",
   /** floating-spec re-check interval in hours, 0 = every run, <0 = never (was `AGENT_MESSENGER_CORE_TTL_HOURS`) */
   TTL_HOURS: "AGENT_MESSENGER_TTL_HOURS",
-  /** version spec of `@agent-hand/messenger-broker` (was `AGENT_MESSENGER_CORE_SPEC`) */
+  /** version spec of `@unagents/messenger-broker` (was `AGENT_MESSENGER_CORE_SPEC`) */
   BROKER_SPEC: "AGENT_MESSENGER_BROKER_SPEC",
-  /** version spec of `@agent-hand/messenger-client` and its platform packages */
+  /** version spec of `@unagents/messenger-client` and its platform packages */
   CLIENT_SPEC: "AGENT_MESSENGER_CLIENT_SPEC",
   /** `"node"` | `"native"` — force the client flavour (default: native if available) */
   CLIENT: "AGENT_MESSENGER_CLIENT",
@@ -63,7 +63,7 @@ export function loadLoaderConfig(env: Env = process.env): LoaderConfig {
   };
 }
 
-/** `@agent-hand/messenger-client-<platform>-<arch>`, e.g. `...-darwin-arm64` / `...-linux-x64`. */
+/** `@unagents/messenger-client-<platform>-<arch>`, e.g. `...-darwin-arm64` / `...-linux-x64`. */
 export function nativeClientName(platform: string = process.platform, arch: string = process.arch): string {
   return `${CLIENT_NAME}-${platform}-${arch}`;
 }

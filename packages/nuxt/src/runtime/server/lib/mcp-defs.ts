@@ -1,7 +1,7 @@
 import type { z } from 'zod'
-import type { MessengerClient } from '@agent-hand/messenger-client'
-import { toolDescriptors } from '@agent-hand/messenger-client/tools'
-import type { ToolResult } from '@agent-hand/messenger-client/tools'
+import type { MessengerClient } from '@unagents/messenger-client'
+import { toolDescriptors } from '@unagents/messenger-client/tools'
+import type { ToolResult } from '@unagents/messenger-client/tools'
 import { jsonSchemaToZodShape } from './zod-shape'
 
 export interface McpToolDefinitionInput {

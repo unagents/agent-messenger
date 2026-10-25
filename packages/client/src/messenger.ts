@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { mkdirSync, openSync } from "node:fs";
-import type { Peer, PeerScope } from "@agent-hand/messenger-protocol";
+import type { Peer, PeerScope } from "@unagents/messenger-protocol";
 import { createBrokerClient } from "./broker.js";
 import type { BrokerClient } from "./broker.js";
 import { FALLBACK_ENV, RESOLVE_RETRY_MS } from "./constants.js";

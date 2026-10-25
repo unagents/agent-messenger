@@ -4,12 +4,12 @@
 // Prints nothing secret.
 //
 //   node deploy/gitea-link-package.js [gitea-base-url] [owner] [type] [package] [repo]
-//   default: http://192.168.1.202/gitea agent-hand npm @agent-hand/messenger-core messenger
+//   default: http://192.168.1.202/gitea unagents npm @unagents/messenger-core messenger
 //   (API: POST /packages/{owner}/{type}/{name}/-/link/{repo_name} — links every version)
 import { spawnSync } from "node:child_process";
 import { request as httpRequest } from "node:http";
 
-const [base = "http://192.168.1.202/gitea", owner = "agent-hand", type = "npm", pkg = "@agent-hand/messenger-core", repo = "messenger"] =
+const [base = "http://192.168.1.202/gitea", owner = "unagents", type = "npm", pkg = "@unagents/messenger-core", repo = "messenger"] =
   process.argv.slice(2);
 
 const r = spawnSync("git", ["credential", "fill"], {

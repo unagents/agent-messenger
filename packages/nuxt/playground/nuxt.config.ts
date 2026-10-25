@@ -1,4 +1,4 @@
-// Playground for @agent-hand/messenger-nuxt.
+// Playground for @unagents/messenger-nuxt.
 // PG_MCP=1       -> also load @nuxtjs/mcp-toolkit (adapter exposes the 6 tools on /mcp)
 // PG_MCP_ORDER=after -> list the toolkit after this module (order check)
 const withMcp = process.env.PG_MCP === '1'

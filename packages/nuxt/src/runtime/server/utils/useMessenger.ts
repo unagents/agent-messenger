@@ -1,4 +1,4 @@
-import type { InboundMessage, Peer, PeerScope, SendResult } from '@agent-hand/messenger-client'
+import type { InboundMessage, Peer, PeerScope, SendResult } from '@unagents/messenger-client'
 import { getStore, waitReady, READY_TIMEOUT_MS } from '../lib/lifecycle'
 
 export interface MessengerApi {

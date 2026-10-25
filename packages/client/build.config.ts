@@ -9,10 +9,10 @@ export default defineBuildConfig({
   // bundled from source so the published client has zero runtime dependencies
   // (and the node build does not depend on packages/protocol/dist).
   alias: {
-    "@agent-hand/messenger-protocol": fileURLToPath(new URL("../protocol/src/index.ts", import.meta.url)),
+    "@unagents/messenger-protocol": fileURLToPath(new URL("../protocol/src/index.ts", import.meta.url)),
   },
   rollup: {
     emitCJS: false,
-    inlineDependencies: ["@agent-hand/messenger-protocol"],
+    inlineDependencies: ["@unagents/messenger-protocol"],
   },
 });

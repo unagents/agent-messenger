@@ -1,12 +1,12 @@
 {
-  "name": "@agent-hand/messenger-protocol",
-  "version": "0.8.0",
+  "name": "@unagents/messenger-protocol",
+  "version": "0.9.0",
   "description": "agent-messenger protocol: types and constants shared by broker, client and CLI. No runtime logic.",
   "type": "module",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "http://192.168.1.202/gitea/agent-hand/messenger.git",
+    "url": "https://github.com/unagents/agent-messenger.git",
     "directory": "packages/protocol"
   },
   "exports": {
@@ -18,9 +18,6 @@
   "files": [
     "dist"
   ],
-  "publishConfig": {
-    "registry": "http://192.168.1.202/gitea/api/packages/agent-hand/npm/"
-  },
   "engines": {
     "node": ">=20"
   },

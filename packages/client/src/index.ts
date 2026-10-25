@@ -18,4 +18,4 @@ export { createMessengerClient } from "./messenger.js";
 export type { MessengerClient, MessengerClientOptions, SendResult } from "./messenger.js";
 export type { InboundMessage, Notifier, MessageHandler, Inbox } from "./inbox.js";
 export type { PeerState } from "./peer.js";
-export type { Peer, PeerScope } from "@agent-hand/messenger-protocol";
+export type { Peer, PeerScope } from "@unagents/messenger-protocol";

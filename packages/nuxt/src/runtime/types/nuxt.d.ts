@@ -1,4 +1,4 @@
-import type { InboundMessage } from '@agent-hand/messenger-client'
+import type { InboundMessage } from '@unagents/messenger-client'
 
 declare module 'nitropack/types' {
   interface NitroRuntimeHooks {

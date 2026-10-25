@@ -29,8 +29,8 @@ import type {
   SetSummaryResponse,
   UnregisterRequest,
   UnregisterResponse,
-} from "@agent-hand/messenger-protocol";
-import { HEARTBEAT_TIMEOUT_MS } from "@agent-hand/messenger-protocol";
+} from "@unagents/messenger-protocol";
+import { HEARTBEAT_TIMEOUT_MS } from "@unagents/messenger-protocol";
 import { log } from "./log.js";
 import type { BrokerState } from "./state.js";
 

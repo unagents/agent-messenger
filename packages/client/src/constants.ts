@@ -1,7 +1,7 @@
 /**
  * Runtime constants used by the client.
  *
- * These duplicate values from `@agent-hand/messenger-protocol` on purpose: the
+ * These duplicate values from `@unagents/messenger-protocol` on purpose: the
  * client imports only *types* from protocol. PerryTS resolves the protocol
  * package to its unbuild output (`dist/index.mjs`, `export { A, B }` list form)
  * and turns numeric constants imported from it into functions (see
@@ -47,7 +47,7 @@ export const ENV = {
 
 /** Command used to auto-launch a local broker (whitespace separated). Client-only, not in protocol. */
 export const BROKER_CMD_ENV = "AGENT_MESSENGER_BROKER_CMD";
-export const DEFAULT_BROKER_CMD = "npx -y @agent-hand/messenger broker";
+export const DEFAULT_BROKER_CMD = "npx -y @unagents/messenger broker";
 
 /**
  * Fallback / re-resolve settings. Client-only, not in the protocol ENV table (that table mirrors legacy).

@@ -2,11 +2,11 @@
  * The client keeps its own copy of the protocol's runtime constants (see
  * src/constants.ts for why). This test pins them to the protocol package.
  */
-import * as protocol from "@agent-hand/messenger-protocol";
+import * as protocol from "@unagents/messenger-protocol";
 import { describe, expect, it } from "vitest";
 import * as local from "../src/constants.js";
 
-describe("client constants match @agent-hand/messenger-protocol", () => {
+describe("client constants match @unagents/messenger-protocol", () => {
   it("numbers", () => {
     expect(local.DEFAULT_HTTP_PORT).toBe(protocol.DEFAULT_HTTP_PORT);
     expect(local.DEFAULT_DISCOVERY_PORT).toBe(protocol.DEFAULT_DISCOVERY_PORT);

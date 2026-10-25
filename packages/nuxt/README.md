@@ -1,7 +1,7 @@
-# @agent-hand/messenger-nuxt
+# @unagents/messenger-nuxt
 
 Nuxt 4 module for agent-messenger. **One Nuxt server = one peer**: the Nitro server connects to a broker through the
-library API of `@agent-hand/messenger-client`, shows up in `agent-messenger peers`, can send messages, and receives
+library API of `@unagents/messenger-client`, shows up in `agent-messenger peers`, can send messages, and receives
 messages through a Nitro hook or by pulling. Optionally it exposes the six messenger tools on `/mcp` through
 `@nuxtjs/mcp-toolkit`.
 
@@ -10,13 +10,13 @@ Not published yet (internal registry only).
 ## Install
 
 ```bash
-npm i @agent-hand/messenger-nuxt
+npm i @unagents/messenger-nuxt
 ```
 
 ```ts
 // nuxt.config.ts
 export default defineNuxtConfig({
-  modules: ['@agent-hand/messenger-nuxt'],
+  modules: ['@unagents/messenger-nuxt'],
   messenger: {
     name: 'my-nuxt',
     summary: 'what this server does',
@@ -113,7 +113,7 @@ Optional. Install `@nuxtjs/mcp-toolkit` (and `zod` v4, which the toolkit needs) 
 
 ```ts
 export default defineNuxtConfig({
-  modules: ['@nuxtjs/mcp-toolkit', '@agent-hand/messenger-nuxt'],
+  modules: ['@nuxtjs/mcp-toolkit', '@unagents/messenger-nuxt'],
 })
 ```
 

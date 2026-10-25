@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
-import { TOOL_DEFS } from '@agent-hand/messenger-client/tools'
-import type { JsonObjectSchema } from '@agent-hand/messenger-client/tools'
+import { TOOL_DEFS } from '@unagents/messenger-client/tools'
+import type { JsonObjectSchema } from '@unagents/messenger-client/tools'
 import { jsonSchemaToZodShape } from '../src/runtime/server/lib/zod-shape'
 
 const def = (name: string) => {

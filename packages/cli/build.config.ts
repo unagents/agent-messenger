@@ -8,10 +8,10 @@ export default defineBuildConfig({
   // protocol is a build-time only dependency (types); resolve it from source so
   // the .d.ts bundle does not depend on packages/protocol/dist.
   alias: {
-    "@agent-hand/messenger-protocol": fileURLToPath(new URL("../protocol/src/index.ts", import.meta.url)),
+    "@unagents/messenger-protocol": fileURLToPath(new URL("../protocol/src/index.ts", import.meta.url)),
   },
   rollup: {
     emitCJS: false,
-    inlineDependencies: ["@agent-hand/messenger-protocol"],
+    inlineDependencies: ["@unagents/messenger-protocol"],
   },
 });

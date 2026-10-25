@@ -2,7 +2,7 @@
  * Sub-command bodies. Output text is the same as `legacy/bin/agent-messenger.js`.
  */
 import { spawnSync } from "node:child_process";
-import type { Peer } from "@agent-hand/messenger-protocol";
+import type { Peer } from "@unagents/messenger-protocol";
 import type { BrokerClientLike, ClientModule } from "./client-module.js";
 import { loadClientModule } from "./client-module.js";
 import type { LoaderConfig } from "./config.js";
@@ -13,14 +13,14 @@ import { runChild } from "./run.js";
 
 const log = (m: string) => console.error(`[agent-messenger] ${m}`);
 
-/** Cached node client package (`@agent-hand/messenger-client`). Exits when it cannot be obtained. */
+/** Cached node client package (`@unagents/messenger-client`). Exits when it cannot be obtained. */
 function nodeClient(cfg: LoaderConfig): InstalledPackage {
   return ensurePackage(cfg, CLIENT_NAME, cfg.clientSpec) as InstalledPackage;
 }
 
 /**
  * `mcp`: run the client. Native platform package first
- * (`@agent-hand/messenger-client-<platform>-<arch>`), else the node client;
+ * (`@unagents/messenger-client-<platform>-<arch>`), else the node client;
  * `AGENT_MESSENGER_CLIENT=node|native` forces one flavour.
  * Without the `native` force, the native executable is first run with
  * `--version`; when that fails (e.g. a newer glibc is required) the node
@@ -56,7 +56,7 @@ function probeNative(bin: string): string | null {
   return first || (r.signal ? `signal ${r.signal}` : `exit ${r.status}`);
 }
 
-/** `broker`: run `@agent-hand/messenger-broker/main` (handles SIGINT / SIGTERM → close → exit 0). */
+/** `broker`: run `@unagents/messenger-broker/main` (handles SIGINT / SIGTERM → close → exit 0). */
 export async function runBroker(cfg: LoaderConfig): Promise<void> {
   const broker = ensurePackage(cfg, BROKER_NAME, cfg.brokerSpec) as InstalledPackage;
   return runChild(process.execPath, [resolveEntry(broker.pkgDir, "./main")]);

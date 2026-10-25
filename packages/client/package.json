@@ -1,12 +1,12 @@
 {
-  "name": "@agent-hand/messenger-client",
-  "version": "0.8.0",
+  "name": "@unagents/messenger-client",
+  "version": "0.9.0",
   "description": "agent-messenger client: stdio MCP server for one Claude Code session. Node built-in APIs only, zero runtime dependencies.",
   "type": "module",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "http://192.168.1.202/gitea/agent-hand/messenger.git",
+    "url": "https://github.com/unagents/agent-messenger.git",
     "directory": "packages/client"
   },
   "exports": {
@@ -22,9 +22,6 @@
   "files": [
     "dist"
   ],
-  "publishConfig": {
-    "registry": "http://192.168.1.202/gitea/api/packages/agent-hand/npm/"
-  },
   "engines": {
     "node": ">=20"
   },
@@ -35,6 +32,6 @@
   },
   "dependencies": {},
   "devDependencies": {
-    "@agent-hand/messenger-protocol": "0.8.0"
+    "@unagents/messenger-protocol": "0.9.0"
   }
 }

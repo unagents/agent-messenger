@@ -1,5 +1,5 @@
 import { connect as netConnect } from "node:net";
-import type { BrokerPostRoute, BrokerRequest, BrokerResponse, HealthResponse } from "@agent-hand/messenger-protocol";
+import type { BrokerPostRoute, BrokerRequest, BrokerResponse, HealthResponse } from "@unagents/messenger-protocol";
 import { HEALTH_ROUTE } from "./constants.js";
 
 /**

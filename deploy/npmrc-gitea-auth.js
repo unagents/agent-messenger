@@ -3,14 +3,14 @@
 // git already stores for this Gitea host. Prints nothing secret.
 //
 //   node deploy/npmrc-gitea-auth.js [gitea-base-url] [owner]
-//   default: http://192.168.1.202/gitea  agent-hand
+//   default: http://192.168.1.202/gitea  unagents
 import { spawnSync } from "node:child_process";
 import { readFileSync, appendFileSync, existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
 const base = process.argv[2] ?? "http://192.168.1.202/gitea";
-const owner = process.argv[3] ?? "agent-hand";
+const owner = process.argv[3] ?? "unagents";
 const u = new URL(base);
 const registryPath = `//${u.host}${u.pathname.replace(/\/$/, "")}/api/packages/${owner}/npm/`;
 const npmrc = join(homedir(), ".npmrc");

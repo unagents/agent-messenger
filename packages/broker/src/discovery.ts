@@ -1,6 +1,6 @@
 import { createSocket, type Socket } from "node:dgram";
 import { networkInterfaces } from "node:os";
-import { DISCOVERY_KEY, DISCOVERY_PROBE_VALUE, DISCOVERY_REPLY_VALUE, type DiscoveryReply } from "@agent-hand/messenger-protocol";
+import { DISCOVERY_KEY, DISCOVERY_PROBE_VALUE, DISCOVERY_REPLY_VALUE, type DiscoveryReply } from "@unagents/messenger-protocol";
 import { log } from "./log.js";
 
 export interface DiscoveryResponderOptions {

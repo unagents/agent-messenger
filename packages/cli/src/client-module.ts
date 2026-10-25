@@ -1,11 +1,11 @@
 /**
  * `status` / `peers` / `send` / `discover` reuse the broker-resolution and HTTP code
- * exported by the cached `@agent-hand/messenger-client` package (node build), loaded
+ * exported by the cached `@unagents/messenger-client` package (node build), loaded
  * with a dynamic `import()`. Only the parts the CLI uses are typed here; the client
  * package is not a dependency of the CLI (it is fetched at runtime).
  */
 import { pathToFileURL } from "node:url";
-import type { HealthResponse, Peer, SendMessageResponse } from "@agent-hand/messenger-protocol";
+import type { HealthResponse, Peer, SendMessageResponse } from "@unagents/messenger-protocol";
 import { resolveEntry } from "./pkgs.js";
 
 export interface ClientConfigLike {

@@ -8,7 +8,7 @@
  *   .missing            stamp written when an *optional* package (a native client
  *                       platform package) could not be installed; its mtime gates the retry
  *
- * `<short name>` is the package name without the `@agent-hand/` scope, `<spec>` is the
+ * `<short name>` is the package name without the `@unagents/` scope, `<spec>` is the
  * configured spec value with characters outside `[A-Za-z0-9._+-]` replaced by `_`, and
  * `<hash>` is sha1(`<registry>\n<full spec>`)[0..12] — same key as the loader.
  */
@@ -120,7 +120,7 @@ export function ensurePackage(cfg: LoaderConfig, name: string, specValue: string
     mkdirSync(dir, { recursive: true });
     const cachePkgJson = join(dir, "package.json");
     if (!existsSync(cachePkgJson)) writeFileSync(cachePkgJson, JSON.stringify({ name: "agent-messenger-pkg-cache", private: true }));
-    const env = { ...process.env, ["npm_config_@agent-hand:registry"]: cfg.registry };
+    const env = { ...process.env, ["npm_config_@unagents:registry"]: cfg.registry };
     const r = spawnSync(
       "npm",
       ["install", "--no-audit", "--no-fund", "--no-package-lock", "--loglevel=error", "--prefix", dir, spec],

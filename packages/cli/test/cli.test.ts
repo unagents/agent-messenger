@@ -14,7 +14,7 @@ describe("unit", () => {
   it("defaults and env names", async () => {
     const cfg = loadLoaderConfig({});
     expect(cfg.registry).toBe(DEFAULT_REGISTRY);
-    expect(cfg.registry).toBe("http://192.168.1.202/gitea/api/packages/agent-hand/npm/");
+    expect(cfg.registry).toBe("https://registry.npmjs.org/");
     expect(cfg.brokerSpec).toBe("latest");
     expect(cfg.clientSpec).toBe("latest");
     expect(cfg.ttlHours).toBe(24);
@@ -29,7 +29,7 @@ describe("unit", () => {
   });
 
   it("fullSpec / isPinned", async () => {
-    const n = "@agent-hand/messenger-client";
+    const n = "@unagents/messenger-client";
     expect(fullSpec(n, "latest")).toBe(`${n}@latest`);
     expect(fullSpec(n, "@latest")).toBe(`${n}@latest`);
     expect(fullSpec(n, "1.2.3")).toBe(`${n}@1.2.3`);
@@ -45,12 +45,12 @@ describe("unit", () => {
 
   it("cache directory layout: <pkgs>/<short name>@<spec>/<hash>", async () => {
     const cfg = loadLoaderConfig({ AGENT_MESSENGER_PKGS_DIR: "/p", AGENT_MESSENGER_REGISTRY: "http://r/" });
-    const d = cacheDir(cfg, "@agent-hand/messenger-client", "latest");
+    const d = cacheDir(cfg, "@unagents/messenger-client", "latest");
     expect(d).toMatch(/^\/p\/messenger-client@latest\/[0-9a-f]{12}$/);
     expect(cacheDir(cfg, NATIVE, "latest")).toMatch(new RegExp(`^/p/messenger-client-${process.platform}-${process.arch}@latest/[0-9a-f]{12}$`));
-    expect(cacheDir(cfg, "@agent-hand/messenger-broker", "file:/tmp/b.tgz")).toMatch(/^\/p\/messenger-broker@file__tmp_b.tgz\/[0-9a-f]{12}$/);
+    expect(cacheDir(cfg, "@unagents/messenger-broker", "file:/tmp/b.tgz")).toMatch(/^\/p\/messenger-broker@file__tmp_b.tgz\/[0-9a-f]{12}$/);
     // different registry -> different hash
-    expect(cacheDir({ ...cfg, registry: "http://other/" }, "@agent-hand/messenger-client", "latest")).not.toBe(d);
+    expect(cacheDir({ ...cfg, registry: "http://other/" }, "@unagents/messenger-client", "latest")).not.toBe(d);
   });
 });
 
@@ -66,7 +66,7 @@ describe("help / version", () => {
     const v = await runCli(["--version"], env);
     expect(v.status).toBe(0);
     expect(v.stdout.trim()).toBe(VERSION);
-    expect(VERSION).toBe("0.8.0");
+    expect(VERSION).toBe("0.9.0");
     const u = await runCli(["nosuchcommand"], env);
     expect(u.status).toBe(1);
     expect(u.stdout).toMatch(/USAGE/);
@@ -94,7 +94,7 @@ describe("package fetch + cache (ported from test/loader.test.js)", () => {
     try {
       const r1 = await runCli(["mcp"], env);
       expect(r1.status, r1.stderr).toBe(0);
-      expect(r1.stderr).toMatch(/installing @agent-hand\/messenger-client@latest \(not installed\)/);
+      expect(r1.stderr).toMatch(/installing @unagents\/messenger-client@latest \(not installed\)/);
       expect(r1.stderr).toMatch(new RegExp(`${NATIVE} not available`));
       expect(r1.stdout).toMatch(/^node-client v1\.0\.0 argv=\[\]$/m);
 
@@ -110,7 +110,7 @@ describe("package fetch + cache (ported from test/loader.test.js)", () => {
       // exactly one cache entry per package with the body inside
       const entries = readdirSync(join(pkgs, CLIENT_CACHE));
       expect(entries).toHaveLength(1);
-      expect(existsSync(join(pkgs, CLIENT_CACHE, entries[0], "node_modules", "@agent-hand", "messenger-client", "dist", "main.mjs"))).toBe(true);
+      expect(existsSync(join(pkgs, CLIENT_CACHE, entries[0], "node_modules", "@unagents", "messenger-client", "dist", "main.mjs"))).toBe(true);
       expect(existsSync(join(pkgs, CLIENT_CACHE, entries[0], ".installed"))).toBe(true);
       const nativeEntries = readdirSync(join(pkgs, `messenger-client-${process.platform}-${process.arch}@latest`));
       expect(nativeEntries).toHaveLength(1);
@@ -134,7 +134,7 @@ describe("package fetch + cache (ported from test/loader.test.js)", () => {
       // refresh -> new version
       const r3 = await runCli(["mcp"], { ...env, AGENT_MESSENGER_REFRESH: "1" });
       expect(r3.status, r3.stderr).toBe(0);
-      expect(r3.stderr).toMatch(/installing @agent-hand\/messenger-client@latest \(refresh requested\)/);
+      expect(r3.stderr).toMatch(/installing @unagents\/messenger-client@latest \(refresh requested\)/);
       expect(r3.stdout).toMatch(/node-client v1\.0\.1/);
       // old name still accepted
       const r4 = await runCli(["mcp"], { ...env, AGENT_MESSENGER_CORE_REFRESH: "1" });
@@ -237,7 +237,7 @@ describe("mcp: native platform package vs node client", () => {
 });
 
 describe("broker", () => {
-  it("runs @agent-hand/messenger-broker/main", async () => {
+  it("runs @unagents/messenger-broker/main", async () => {
     const registry = await startRegistry();
     const stubs = tmp("am-cli-stubs-");
     const pkgs = tmp("am-cli-pkgs-");
@@ -245,7 +245,7 @@ describe("broker", () => {
       registry.publish(brokerStub(stubs, "3.0.0"));
       const r = await runCli(["broker"], cliEnv(registry, pkgs));
       expect(r.status, r.stderr).toBe(0);
-      expect(r.stderr).toMatch(/installing @agent-hand\/messenger-broker@latest \(not installed\)/);
+      expect(r.stderr).toMatch(/installing @unagents\/messenger-broker@latest \(not installed\)/);
       expect(r.stdout).toMatch(/^broker-main v3\.0\.0$/m);
       expect(readdirSync(join(pkgs, "messenger-broker@latest"))).toHaveLength(1);
     } finally {
@@ -290,8 +290,8 @@ describe("status / peers / send / discover (real client package, TypeScript brok
   it("status", async () => {
     const r = await runCli(["status"], env);
     expect(r.status, r.stderr).toBe(0);
-    expect(r.stderr).toMatch(/installing @agent-hand\/messenger-client@latest/);
-    expect(r.stdout.trim()).toBe(`Broker: ok v0.8.0 id=test-broker (0 peer(s)) at http://127.0.0.1:${broker.port} (via env)`);
+    expect(r.stderr).toMatch(/installing @unagents\/messenger-client@latest/);
+    expect(r.stdout.trim()).toBe(`Broker: ok v0.9.0 id=test-broker (0 peer(s)) at http://127.0.0.1:${broker.port} (via env)`);
   });
 
   it("peers", async () => {

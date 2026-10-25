@@ -15,7 +15,7 @@ const TOOLKIT = '@nuxtjs/mcp-toolkit'
 
 export default defineNuxtModule<ModuleOptions>({
   meta: {
-    name: '@agent-hand/messenger-nuxt',
+    name: '@unagents/messenger-nuxt',
     configKey: 'messenger',
     compatibility: { nuxt: '>=4.0.0' },
   },

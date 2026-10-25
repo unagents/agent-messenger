@@ -1,7 +1,7 @@
 import { createSocket } from "node:dgram";
 import { readFileSync } from "node:fs";
 import { networkInterfaces } from "node:os";
-import type { DiscoveryReply } from "@agent-hand/messenger-protocol";
+import type { DiscoveryReply } from "@unagents/messenger-protocol";
 import { DISCOVERY_BROADCAST_ADDR, DISCOVERY_KEY, DISCOVERY_PROBE_VALUE, DISCOVERY_REPLY_VALUE } from "./constants.js";
 import type { BrokerClient } from "./broker.js";
 import type { ClientConfig } from "./config.js";

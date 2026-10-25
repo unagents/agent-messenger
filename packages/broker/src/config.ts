@@ -1,7 +1,7 @@
 import { homedir, hostname } from "node:os";
 import { join } from "node:path";
 import { defu } from "defu";
-import { DEFAULT_BIND, DEFAULT_DISCOVERY_PORT, DEFAULT_HTTP_PORT, ENV } from "@agent-hand/messenger-protocol";
+import { DEFAULT_BIND, DEFAULT_DISCOVERY_PORT, DEFAULT_HTTP_PORT, ENV } from "@unagents/messenger-protocol";
 
 /**
  * Broker configuration. Every field can be given to `startBroker(options)`;

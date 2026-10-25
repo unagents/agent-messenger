@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
-import { DISCOVERY_PROBE, type DiscoveryReply, type Peer } from "@agent-hand/messenger-protocol";
+import { DISCOVERY_PROBE, type DiscoveryReply, type Peer } from "@unagents/messenger-protocol";
 import { startBroker, VERSION, type BrokerHandle, type BrokerStateFile } from "../src/index.js";
 
 const TOKEN = "test-token";

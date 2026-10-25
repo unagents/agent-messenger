@@ -1,5 +1,5 @@
 import { connect as netConnect } from "node:net";
-import type { SessionAuthLine, SessionUserLine } from "@agent-hand/messenger-protocol";
+import type { SessionAuthLine, SessionUserLine } from "@unagents/messenger-protocol";
 
 /**
  * Deliver a message into the Claude Code session through its inbox socket
