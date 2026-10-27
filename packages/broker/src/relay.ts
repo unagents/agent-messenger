@@ -42,6 +42,7 @@ export async function relayUndelivered(
       text: m.text,
       mode: m.mode ?? "pull",
       sent_at: m.sent_at,
+      ...(m.meta ? { meta: m.meta } : {}),
     });
   }
 
@@ -54,7 +55,7 @@ export async function relayUndelivered(
       dropped += r.dropped;
     } else if (res.status === 404) {
       for (const it of items) {
-        const r = await post(url, "/send-message", token, { to: it.to_name, from_id: it.from_id, from_name: it.from_name, text: it.text, mode: it.mode });
+        const r = await post(url, "/send-message", token, { to: it.to_name, from_id: it.from_id, from_name: it.from_name, text: it.text, mode: it.mode, meta: it.meta });
         if (r.ok && ((await r.json()) as SendMessageResponse).ok) sent++;
         else dropped++;
       }

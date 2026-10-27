@@ -1,6 +1,6 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import type { Message, Peer, RelayedMessage } from "@unagents/messenger-protocol";
+import type { Message, Peer, RelayedMessage, StoredProtocol } from "@unagents/messenger-protocol";
 import { log } from "./log.js";
 
 /**
@@ -13,6 +13,8 @@ export interface BrokerStateFile {
   nextMsgId: number;
   /** Relayed messages waiting for their recipient to register (absent in files written before the fallback relay). */
   pending?: PendingRelay[];
+  /** Protocol definitions (absent in files written before the protocol registry, or when none is held). */
+  protocols?: StoredProtocol[];
 }
 
 /** A message relayed from a fallback broker whose recipient has not registered here yet. */
@@ -33,6 +35,8 @@ export class BrokerState {
   messages: Message[] = [];
   nextMsgId = 1;
   pending: PendingRelay[] = [];
+  /** Protocol definitions by `"name@version"`. Kept while at least one alive peer declares them (see `BrokerHandlers.gcProtocols`). */
+  readonly protocols = new Map<string, StoredProtocol>();
   /** Mesh: when each origin broker last synced with us (ms epoch, memory only). Replicated peers live as long as this is fresh. */
   readonly originSeen = new Map<string, number>();
 
@@ -52,7 +56,12 @@ export class BrokerState {
       this.messages = raw.messages ?? [];
       this.nextMsgId = raw.nextMsgId ?? 1;
       this.pending = raw.pending ?? [];
-      log.info(`Loaded state from ${this.file} (${this.peers.size} peer(s), ${this.messages.length} message(s))`);
+      for (const sp of raw.protocols ?? []) {
+        if (sp && typeof sp.name === "string" && typeof sp.version === "string") this.protocols.set(`${sp.name}@${sp.version}`, sp);
+      }
+      log.info(
+        `Loaded state from ${this.file} (${this.peers.size} peer(s), ${this.messages.length} message(s)${this.protocols.size ? `, ${this.protocols.size} protocol(s)` : ""})`
+      );
     } catch {
       // no state yet
     }
@@ -81,6 +90,7 @@ export class BrokerState {
         messages: this.messages,
         nextMsgId: this.nextMsgId,
         ...(this.pending.length ? { pending: this.pending } : {}),
+        ...(this.protocols.size ? { protocols: [...this.protocols.values()] } : {}),
       };
       writeFileSync(tmp, JSON.stringify(snapshot, null, 1));
       renameSync(tmp, this.file);

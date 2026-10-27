@@ -94,10 +94,12 @@ export class Mesh {
     // The other broker's id is only known after a first answer; messages are
     // matched by the origin we learned from earlier answers.
     const origin = this.origins.get(url);
+    const protocols = handlers.meshLocalProtocols();
     const req: MeshSyncRequest = {
       from: id,
       peers: handlers.meshLocalPeers(),
       messages: origin ? handlers.meshOutbox(origin) : [],
+      ...(protocols.length ? { protocols } : {}),
     };
     let res: MeshSyncResponse;
     try {
@@ -115,6 +117,7 @@ export class Mesh {
     const learned = this.origins.get(url) !== res.id;
     this.origins.set(url, res.id);
     handlers.meshApplyPeers(res.id, res.peers ?? []);
+    handlers.meshApplyProtocols(res.id, res.protocols ?? []);
     handlers.meshDrop(res.accepted ?? []);
     // first answer from this broker: messages queued for its peers can go now
     if (learned && handlers.meshOutbox(res.id).length) this.again = true;

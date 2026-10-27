@@ -6,16 +6,24 @@ import type {
   BrokerResponse,
   GetBufferedMessagesRequest,
   GetBufferedMessagesResponse,
+  GetProtocolRequest,
+  GetProtocolResponse,
   HeartbeatRequest,
   HeartbeatResponse,
   ListPeersRequest,
   ListPeersResponse,
   Message,
+  MessageMeta,
   MeshSyncRequest,
   MeshSyncResponse,
   Peer,
   PollMessagesRequest,
   PollMessagesResponse,
+  ProtocolDecl,
+  ProtocolErrorCode,
+  ProtocolErrorResponse,
+  ProtocolRoute,
+  ProtocolRouteMap,
   RegisterRequest,
   RegisterResponse,
   RelayedMessage,
@@ -25,13 +33,19 @@ import type {
   SendMessageResponse,
   SetNameRequest,
   SetNameResponse,
+  SetProtocolRequest,
+  SetProtocolResponse,
   SetSummaryRequest,
   SetSummaryResponse,
+  StoredProtocol,
   UnregisterRequest,
   UnregisterResponse,
+  UnsetProtocolRequest,
+  UnsetProtocolResponse,
 } from "@unagents/messenger-protocol";
-import { HEARTBEAT_TIMEOUT_MS } from "@unagents/messenger-protocol";
+import { HEARTBEAT_TIMEOUT_MS, PROTOCOL_MAX_STORED } from "@unagents/messenger-protocol";
 import { log } from "./log.js";
+import { checkDefinition, checkMeta, compareVersions, protocolHash, sanitizeDecls } from "./protocol.js";
 import type { BrokerState } from "./state.js";
 
 /** A relayed message nobody claims within this time is dropped. */
@@ -55,6 +69,8 @@ export interface HandlerOptions {
 /** Route handlers over a `BrokerState`. Logic is transcribed 1:1 from `legacy/src/broker.js`; fallback relay and mesh methods are additions. */
 export class BrokerHandlers {
   private readonly recentMeshKeys = new Set<string>();
+  /** Mesh protocol conflicts already logged (`name@version:hash`), so a standing conflict warns once, not every round. */
+  private readonly warnedProtocolConflicts = new Set<string>();
 
   constructor(
     private readonly state: BrokerState,
@@ -107,6 +123,60 @@ export class BrokerHandlers {
       this.state.pending = kept;
       this.state.scheduleSave();
     }
+    this.gcProtocols();
+  }
+
+  // --- protocol store ---
+
+  /** Alive peers (replicas included) that declare `name@version`. */
+  private serversOf(name: string, version: string): Peer[] {
+    const cutoff = BrokerHandlers.cutoff();
+    return [...this.state.peers.values()].filter(
+      (p) => this.isAlive(p, cutoff) && p.protocols?.some((d) => d.name === name && d.version === version)
+    );
+  }
+
+  /**
+   * Drop stored definitions that no alive peer (replicas included) declares by `(name, version)` any more.
+   * Runs after `cleanStalePeers`, `register`, `unregister`, `/set-protocol`, `/unset-protocol`, `meshApplyPeers`
+   * and before `/get-protocol` answers.
+   */
+  gcProtocols(): void {
+    if (this.state.protocols.size === 0) return;
+    const cutoff = BrokerHandlers.cutoff();
+    const live = new Set<string>();
+    for (const p of this.state.peers.values()) {
+      if (!this.isAlive(p, cutoff)) continue;
+      for (const d of p.protocols ?? []) live.add(`${d.name}@${d.version}`);
+    }
+    let removed = 0;
+    for (const key of [...this.state.protocols.keys()]) {
+      if (!live.has(key)) {
+        this.state.protocols.delete(key);
+        removed++;
+      }
+    }
+    if (removed) {
+      log.info(`Dropped ${removed} protocol definition(s) without a declaring peer`);
+      this.state.scheduleSave();
+    }
+  }
+
+  /**
+   * Record `decls` on `peer` (hash only). A name the peer already declares is left alone (only `/set-protocol`
+   * changes a declaration, so a heartbeat that raced a change cannot undo it), and so is a declaration whose hash
+   * differs from the definition stored for the same `(name, version)`.
+   */
+  private mergeDecls(peer: Peer, decls: ProtocolDecl[]): boolean {
+    let changed = false;
+    for (const d of decls) {
+      if (peer.protocols?.some((x) => x.name === d.name)) continue;
+      const stored = this.state.protocols.get(`${d.name}@${d.version}`);
+      if (stored && stored.hash !== d.hash) continue;
+      peer.protocols = [...(peer.protocols ?? []), d];
+      changed = true;
+    }
+    return changed;
   }
 
   /** A peer that registered here (not a mesh replica). Only those can heartbeat / rename. */
@@ -163,7 +233,10 @@ export class BrokerHandlers {
       registered_at: now,
       last_seen: now,
     });
-    this.deliverPending(this.state.peers.get(id)!);
+    const peer = this.state.peers.get(id)!;
+    if (body.protocols !== undefined) this.mergeDecls(peer, sanitizeDecls(body.protocols));
+    this.deliverPending(peer);
+    this.gcProtocols(); // the replaced registration of the same session may have been the only declarer
     this.state.scheduleSave();
     return { id };
   }
@@ -172,8 +245,11 @@ export class BrokerHandlers {
     const p = this.localPeer(body.id);
     if (!p) return { ok: false, error: "unknown peer (re-register)" };
     p.last_seen = new Date().toISOString();
+    if (body.protocols !== undefined) this.mergeDecls(p, sanitizeDecls(body.protocols));
     this.state.scheduleSave(); // keep last_seen fresh on disk so peers survive a broker restart
-    return { ok: true };
+    // declarations of this peer whose body the broker does not hold: the client re-sends them with /set-protocol
+    const resend = (p.protocols ?? []).filter((d) => !this.state.protocols.has(`${d.name}@${d.version}`)).map((d) => `${d.name}@${d.version}`);
+    return resend.length ? { ok: true, resend } : { ok: true };
   }
 
   setSummary(body: SetSummaryRequest): SetSummaryResponse {
@@ -213,6 +289,10 @@ export class BrokerHandlers {
         break;
     }
     if (body.exclude_id) list = list.filter((p) => p.id !== body.exclude_id);
+    if (body.protocol) {
+      const { protocol, version } = body;
+      list = list.filter((p) => p.protocols?.some((d) => d.name === protocol && (!version || d.version === version)));
+    }
     // `origin` is mesh bookkeeping; clients see the plain 0.6.x peer shape
     return list.map(({ origin: _origin, ...p }) => p);
   }
@@ -223,6 +303,12 @@ export class BrokerHandlers {
     const { peer } = resolved;
     const mode = body.mode ?? "pull";
     if (mode !== "pull" && mode !== "push" && mode !== "ping") return { ok: false, error: `invalid mode: ${String(mode)}` };
+    let meta: MessageMeta | undefined;
+    if (body.meta !== undefined) {
+      const checked = checkMeta(body.meta);
+      if (!checked) return { ok: false, error: "invalid meta: expected {protocol: string, version: string}, each at most 128 characters" };
+      meta = checked;
+    }
     const msg: Message = {
       id: this.state.nextMsgId++,
       from_id: body.from_id ?? "cli",
@@ -233,6 +319,7 @@ export class BrokerHandlers {
       sent_at: new Date().toISOString(),
       delivered: 0,
       acknowledged: 0,
+      ...(meta ? { meta } : {}),
     };
     this.state.messages.push(msg);
     this.state.scheduleSave();
@@ -266,14 +353,108 @@ export class BrokerHandlers {
 
   unregister(body: UnregisterRequest): UnregisterResponse {
     this.removePeer(body.id);
+    this.gcProtocols();
     this.state.scheduleSave();
     return { ok: true };
+  }
+
+  // --- protocol registry ---
+
+  private protocolError(code: ProtocolErrorCode, error: string, extra: Partial<ProtocolErrorResponse> = {}): ProtocolErrorResponse {
+    return { ok: false, error, code, ...extra };
+  }
+
+  /**
+   * `/set-protocol`. Order: unknown peer, definition shape / size (INVALID_DEFINITION, TOO_LARGE), hash
+   * re-computation (HASH_MISMATCH), different hash for the same `(name, version)` (PROTOCOL_CONFLICT), held
+   * definitions limit (LIMIT). The same hash again is a no-op success, so a client may re-send at will.
+   */
+  setProtocol(body: SetProtocolRequest): SetProtocolResponse {
+    const peer = this.localPeer(body.id);
+    if (!peer) return { ok: false, error: "unknown peer" };
+    const checked = checkDefinition(body.name, body.version, body.definition);
+    if (!checked.ok) return this.protocolError(checked.code, checked.error);
+    const { name, version, definition } = body;
+    const hash = protocolHash(definition.manifest, definition.doc);
+    if (body.hash !== hash) {
+      return this.protocolError("HASH_MISMATCH", `hash mismatch for ${name}@${version}: sent ${String(body.hash)}, computed ${hash}`);
+    }
+    this.gcProtocols(); // a definition nobody declares any more must not block a new one
+    const key = `${name}@${version}`;
+    const existing = this.state.protocols.get(key);
+    if (existing && existing.hash !== hash) {
+      const servers = this.serversOf(name, version).map((p) => `${p.name || p.id}@${p.hostname}`);
+      return this.protocolError(
+        "PROTOCOL_CONFLICT",
+        `${key} is already registered with a different definition (hash ${existing.hash}, held by ${servers.join(", ") || "no server"}); every server of it must unset_protocol first`,
+        { existing_hash: existing.hash, servers }
+      );
+    }
+    if (!existing) {
+      if (this.state.protocols.size >= PROTOCOL_MAX_STORED) {
+        return this.protocolError("LIMIT", `this broker already holds ${PROTOCOL_MAX_STORED} protocol definitions (limit)`);
+      }
+      this.state.protocols.set(key, {
+        name,
+        version,
+        hash,
+        definition: { manifest: definition.manifest, doc: definition.doc, source: definition.source, ref: definition.ref },
+        registered_at: new Date().toISOString(),
+      });
+    }
+    // one version per name: a different version of the same name is replaced
+    peer.protocols = [...(peer.protocols ?? []).filter((d) => d.name !== name), { name, version, hash }];
+    this.gcProtocols();
+    this.state.scheduleSave();
+    return { ok: true };
+  }
+
+  /** `/unset-protocol`: drop one declaration by `name`, or all of the peer's. Succeeds with `removed: 0` when there was none. */
+  unsetProtocol(body: UnsetProtocolRequest): UnsetProtocolResponse {
+    const peer = this.localPeer(body.id);
+    if (!peer) return { ok: false, error: "unknown peer" };
+    if (body.name !== undefined && typeof body.name !== "string") return { ok: false, error: "invalid name" };
+    const before = peer.protocols ?? [];
+    const kept = body.name === undefined ? [] : before.filter((d) => d.name !== body.name);
+    const removed = before.length - kept.length;
+    if (kept.length) peer.protocols = kept;
+    else delete peer.protocols;
+    if (removed) {
+      this.gcProtocols();
+      this.state.scheduleSave();
+    }
+    return { ok: true, removed };
+  }
+
+  /** `/get-protocol`: the stored definition of `name` at `version`, or at the highest held version. No round trip to any server. */
+  getProtocol(body: GetProtocolRequest): GetProtocolResponse {
+    if (typeof body.name !== "string" || !body.name) return this.protocolError("PROTOCOL_NOT_FOUND", "protocol name is required", { versions: [] });
+    this.gcProtocols(); // a definition whose servers are gone must not be served
+    const held = [...this.state.protocols.values()].filter((sp) => sp.name === body.name);
+    held.sort((a, b) => compareVersions(b.version, a.version) || (a.registered_at < b.registered_at ? 1 : -1));
+    const versions = held.map((sp) => sp.version);
+    const found = body.version === undefined ? held[0] : held.find((sp) => sp.version === body.version);
+    if (!found) {
+      const what = body.version === undefined ? `"${body.name}"` : `"${body.name}" version "${body.version}"`;
+      return this.protocolError("PROTOCOL_NOT_FOUND", `Protocol ${what} not found (registered versions: ${versions.join(", ") || "none"})`, { versions });
+    }
+    return { ok: true, protocol: found, servers: this.serversOf(found.name, found.version).length };
+  }
+
+  /** Route table of the protocol registry in `PROTOCOL_ROUTES` order. */
+  protocolRoutes(): { [R in ProtocolRoute]: (body: ProtocolRouteMap[R]["request"]) => ProtocolRouteMap[R]["response"] } {
+    return {
+      "/set-protocol": (b) => this.setProtocol(b),
+      "/unset-protocol": (b) => this.unsetProtocol(b),
+      "/get-protocol": (b) => this.getProtocol(b),
+    };
   }
 
   // --- relay from a fallback broker ---
 
   /** Queue a message for `peerId` exactly like `sendMessage` does. */
   private enqueue(peerId: string, m: RelayedMessage): void {
+    const meta = m.meta === undefined ? null : checkMeta(m.meta);
     this.state.messages.push({
       id: this.state.nextMsgId++,
       from_id: m.from_id,
@@ -284,6 +465,7 @@ export class BrokerHandlers {
       sent_at: m.sent_at,
       delivered: 0,
       acknowledged: 0,
+      ...(meta ? { meta } : {}),
     });
   }
 
@@ -367,7 +549,65 @@ export class BrokerHandlers {
     for (const p of [...this.state.peers.values()]) {
       if (p.origin === origin && !incoming.has(p.id)) this.removePeer(p.id);
     }
+    this.gcProtocols();
     this.state.scheduleSave();
+  }
+
+  /** Definitions declared by this broker's direct, alive peers (what a mesh sync sends). */
+  meshLocalProtocols(): StoredProtocol[] {
+    const out = new Map<string, StoredProtocol>();
+    for (const p of this.meshLocalPeers()) {
+      for (const d of p.protocols ?? []) {
+        const key = `${d.name}@${d.version}`;
+        const sp = this.state.protocols.get(key);
+        if (sp && sp.hash === d.hash) out.set(key, sp);
+      }
+    }
+    return [...out.values()];
+  }
+
+  /**
+   * Take over definitions another broker's direct peers declare. Only a definition that a peer we now hold
+   * declares with the same hash is stored (the rest would be collected at once). A `(name, version)` we already
+   * hold with another hash stays as it is (ours wins) and the received one is dropped with a warning.
+   */
+  meshApplyProtocols(from: string, protocols: StoredProtocol[]): void {
+    let added = false;
+    for (const sp of protocols) {
+      const checked = checkDefinition(sp?.name, sp?.version, sp?.definition);
+      if (!checked.ok) {
+        log.warn(`mesh: dropped protocol from ${from}: ${checked.error}`);
+        continue;
+      }
+      const hash = protocolHash(sp.definition.manifest, sp.definition.doc);
+      if (hash !== sp.hash) {
+        log.warn(`mesh: dropped protocol ${sp.name}@${sp.version} from ${from}: hash mismatch`);
+        continue;
+      }
+      const key = `${sp.name}@${sp.version}`;
+      const mine = this.state.protocols.get(key);
+      if (mine) {
+        if (mine.hash !== hash && !this.warnedProtocolConflicts.has(`${key}:${hash}`)) {
+          this.warnedProtocolConflicts.add(`${key}:${hash}`);
+          log.warn(`mesh: protocol ${key} from ${from} differs from the one held here (${hash} vs ${mine.hash}); keeping ours`);
+        }
+        continue;
+      }
+      if (this.state.protocols.size >= PROTOCOL_MAX_STORED) {
+        log.warn(`mesh: dropped protocol ${key} from ${from}: ${PROTOCOL_MAX_STORED} definitions held (limit)`);
+        continue;
+      }
+      if (!this.serversOf(sp.name, sp.version).some((p) => p.protocols?.some((d) => d.name === sp.name && d.version === sp.version && d.hash === hash))) continue;
+      this.state.protocols.set(key, {
+        name: sp.name,
+        version: sp.version,
+        hash,
+        definition: { manifest: sp.definition.manifest, doc: sp.definition.doc, source: sp.definition.source, ref: sp.definition.ref },
+        registered_at: typeof sp.registered_at === "string" ? sp.registered_at : new Date().toISOString(),
+      });
+      added = true;
+    }
+    if (added) this.state.scheduleSave();
   }
 
   /** Take over messages forwarded by broker `from`; returns the sender-side ids to drop (duplicates count as taken). */
@@ -395,8 +635,10 @@ export class BrokerHandlers {
     // listed itself in the member list: answer with our id so the sender sees it is talking to itself
     if (body.from === this.opts.id) return { id: body.from, peers: [], accepted: [] };
     this.meshApplyPeers(body.from, body.peers ?? []);
+    this.meshApplyProtocols(body.from, body.protocols ?? []);
     const accepted = this.meshAccept(body.from, body.messages ?? []);
-    return { id: this.opts.id ?? "", peers: this.meshLocalPeers(), accepted };
+    const protocols = this.meshLocalProtocols();
+    return { id: this.opts.id ?? "", peers: this.meshLocalPeers(), accepted, ...(protocols.length ? { protocols } : {}) };
   }
 
   /** Route table in `BROKER_POST_ROUTES` order. */

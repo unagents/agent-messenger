@@ -9,8 +9,8 @@ import {
   type App,
   type H3Event,
 } from "h3";
-import type { BrokerErrorResponse, BrokerPostRoute, HealthResponse, RelayMessagesRequest } from "@unagents/messenger-protocol";
-import { BROKER_POST_ROUTES, HEALTH_ROUTE, MESH_SYNC_ROUTE, RELAY_ROUTE } from "@unagents/messenger-protocol";
+import type { BrokerErrorResponse, BrokerPostRoute, HealthResponse, ProtocolRoute, RelayMessagesRequest } from "@unagents/messenger-protocol";
+import { BROKER_POST_ROUTES, HEALTH_ROUTE, MESH_SYNC_ROUTE, PROTOCOL_ROUTES, RELAY_ROUTE } from "@unagents/messenger-protocol";
 import type { BrokerHandlers } from "./handlers.js";
 
 export interface HttpAppOptions {
@@ -37,6 +37,7 @@ export interface HttpAppOptions {
  */
 export function createBrokerApp(opts: HttpAppOptions): App {
   const routes = opts.handlers.routes();
+  const protocolRoutes = opts.handlers.protocolRoutes();
   const router = createRouter();
 
   router.get(HEALTH_ROUTE, defineEventHandler((): HealthResponse => ({
@@ -61,6 +62,7 @@ export function createBrokerApp(opts: HttpAppOptions): App {
 
   for (const route of BROKER_POST_ROUTES) post(route, (body) => routes[route as BrokerPostRoute](body as never));
   post(RELAY_ROUTE, (body) => opts.handlers.relayMessages(body as RelayMessagesRequest));
+  for (const route of PROTOCOL_ROUTES) post(route, (body) => protocolRoutes[route as ProtocolRoute](body as never));
 
   if (opts.mesh) post(MESH_SYNC_ROUTE, (body) => opts.handlers.meshSync(body as never));
 
