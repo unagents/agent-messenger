@@ -66,3 +66,53 @@ export const ENV = {
 } as const;
 
 export type EnvName = (typeof ENV)[keyof typeof ENV];
+
+// --- Protocol registry (0.10.0) ---
+
+/**
+ * Extra POST routes of the protocol registry. Like `RELAY_ROUTE`, not part of `BROKER_POST_ROUTES`
+ * (that table mirrors the legacy broker); request / response shapes are `ProtocolRouteMap` in `http.ts`.
+ */
+export const PROTOCOL_ROUTES = ["/set-protocol", "/unset-protocol", "/get-protocol"] as const;
+
+export type ProtocolRoute = (typeof PROTOCOL_ROUTES)[number];
+
+/** Max size of `protocol.json` (UTF-8 bytes). */
+export const PROTOCOL_MANIFEST_MAX_BYTES = 64 * 1024;
+
+/** Max size of `PROTOCOL.md` (UTF-8 bytes). */
+export const PROTOCOL_DOC_MAX_BYTES = 64 * 1024;
+
+/** Max size of manifest + doc together (UTF-8 bytes). */
+export const PROTOCOL_TOTAL_MAX_BYTES = 128 * 1024;
+
+/** Max number of `(name, version)` definitions one broker holds; more is `LIMIT`. */
+export const PROTOCOL_MAX_STORED = 256;
+
+/** Max length (characters) of each of `meta.protocol` and `meta.version`. */
+export const PROTOCOL_META_MAX_LENGTH = 128;
+
+/** Valid protocol `name`. */
+export const PROTOCOL_NAME_PATTERN = /^[a-z0-9][a-z0-9._-]{0,63}$/;
+
+/**
+ * Error `code`s of the protocol feature (design 7.2). `NO_TAG` is not listed: a repo without tags is
+ * not an error (`0.0.0+<sha7>`). Raised by the broker: HASH_MISMATCH, PROTOCOL_CONFLICT, LIMIT,
+ * PROTOCOL_NOT_FOUND, and TOO_LARGE / INVALID_DEFINITION on re-check. The rest are raised by the client.
+ */
+export const PROTOCOL_ERROR_CODES = [
+  "REPO_UNREACHABLE",
+  "UNSUPPORTED_REPO",
+  "VERSION_NOT_FOUND",
+  "INVALID_DEFINITION",
+  "VERSION_MISMATCH",
+  "TOO_LARGE",
+  "HASH_MISMATCH",
+  "PROTOCOL_CONFLICT",
+  "LIMIT",
+  "PROTOCOL_NOT_FOUND",
+  "BROKER_UNSUPPORTED",
+  "INVALID_META",
+] as const;
+
+export type ProtocolErrorCode = (typeof PROTOCOL_ERROR_CODES)[number];

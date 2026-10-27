@@ -14,6 +14,8 @@
  * - Any other method: `200 text/plain` `agent-messenger broker <version>\n`.
  */
 
+import type { ProtocolErrorCode } from "./constants.js";
+
 /** A registered session as stored and returned by the broker. */
 export interface Peer {
   /** 8-char broker-generated id (`[a-z0-9]`). */
@@ -37,6 +39,46 @@ export interface Peer {
    * registered directly. Never returned by `/list-peers`.
    */
   origin?: string;
+  /**
+   * Protocols this peer serves (`/set-protocol`, re-sent on `/register` and `/heartbeat`). Hash only; the
+   * definition body lives in the broker's protocol store. Absent when none (and from 0.9.x brokers).
+   */
+  protocols?: ProtocolDecl[];
+}
+
+/** A protocol a peer declares: identity (`name` + `version`) and the hash of its definition body. */
+export interface ProtocolDecl {
+  /** `^[a-z0-9][a-z0-9._-]{0,63}$` (`PROTOCOL_NAME_PATTERN`). */
+  name: string;
+  /** semver, or `0.0.0+<sha7>` for a repo without tags. */
+  version: string;
+  /** `sha256(canonicalJSON({manifest, doc}))` as lower-case hex. */
+  hash: string;
+}
+
+/** The definition body a server fetched from its protocol repo. */
+export interface ProtocolDefinition {
+  /** Parsed `protocol.json`. */
+  manifest: object;
+  /** `PROTOCOL.md` text; `""` when the repo has none. */
+  doc: string;
+  /** Normalized repo notation (`github:o/r`, `gitea:<base>/o/r`, `file:<abs path>`). Not part of the hash. */
+  source: string;
+  /** tag or sha the body was read at (`local` for a local path). Not part of the hash. */
+  ref: string;
+}
+
+/** What the broker keeps per `(name, version)`. */
+export interface StoredProtocol extends ProtocolDecl {
+  definition: ProtocolDefinition;
+  /** ISO 8601 timestamp of the first successful `/set-protocol` for this `(name, version)`. */
+  registered_at: string;
+}
+
+/** Protocol tag of a message: which protocol (and version) the sender spoke. Both fields are required when present. */
+export interface MessageMeta {
+  protocol: string;
+  version: string;
 }
 
 export type MessageMode = "pull" | "push" | "ping";
@@ -64,6 +106,8 @@ export interface Message {
   acknowledged: 0 | 1;
   /** Mesh only: `<sender broker id>:<id there>` of a message forwarded by another broker (duplicate guard). */
   mesh_key?: string;
+  /** Protocol tag given to `/send-message`; returned by `/poll-messages` and kept across relay / mesh forwarding. */
+  meta?: MessageMeta;
 }
 
 /** `/list-peers` scope filter. Unknown values behave as `"all"`. */
@@ -103,6 +147,8 @@ export interface RegisterRequest {
   tty?: string | null;
   summary?: string;
   name?: string;
+  /** Protocols to declare right away (hash only; bodies follow via `/set-protocol`). */
+  protocols?: ProtocolDecl[];
 }
 
 export interface RegisterResponse {
@@ -113,10 +159,16 @@ export interface RegisterResponse {
 
 export interface HeartbeatRequest {
   id: string;
+  /** Every protocol the peer currently serves (hash only), sent on each heartbeat. */
+  protocols?: ProtocolDecl[];
 }
 
-/** `ok:false` with `"unknown peer (re-register)"` when the broker does not know the id. */
-export type HeartbeatResponse = OkResult;
+/**
+ * `ok:false` with `"unknown peer (re-register)"` when the broker does not know the id.
+ * `resend` lists the `"name@version"` of declared protocols whose body the broker does not hold; the client answers
+ * with `/set-protocol`. Absent when nothing is missing (and from 0.9.x brokers).
+ */
+export type HeartbeatResponse = { ok: true; resend?: string[] } | { ok: false; error: string };
 
 // --- POST /set-summary ---
 
@@ -148,6 +200,10 @@ export interface ListPeersRequest {
   git_root?: string | null;
   /** Peer id to omit from the result (the caller itself). */
   exclude_id?: string;
+  /** Only peers that declare this protocol (AND with `scope`). */
+  protocol?: string;
+  /** Only with `protocol`: only peers that declare exactly this version. */
+  version?: string;
 }
 
 export type ListPeersResponse = Peer[];
@@ -163,6 +219,8 @@ export interface SendMessageRequest {
   text?: string;
   /** Defaults to `"pull"`. Unknown values are rejected. */
   mode?: MessageMode;
+  /** Protocol tag. Both fields must be strings of at most `PROTOCOL_META_MAX_LENGTH` characters. */
+  meta?: MessageMeta;
 }
 
 export type SendMessageResponse =
@@ -221,6 +279,7 @@ export interface RelayedMessage {
   text: string;
   mode?: MessageMode;
   sent_at: string;
+  meta?: MessageMeta;
 }
 
 export interface RelayMessagesRequest {
@@ -237,6 +296,64 @@ export interface RelayMessagesResponse {
 
 /** Extra POST route served by the TypeScript broker. Not in `BROKER_POST_ROUTES` (that table mirrors the legacy broker). */
 export const RELAY_ROUTE = "/relay-messages" as const;
+
+// --- Protocol registry routes (not part of BROKER_POST_ROUTES; route names are `PROTOCOL_ROUTES` in constants) ---
+
+/** `{ok:false}` answer of the protocol routes; `code` is one of `PROTOCOL_ERROR_CODES`. */
+export interface ProtocolErrorResponse {
+  ok: false;
+  error: string;
+  code: ProtocolErrorCode;
+  /** `PROTOCOL_CONFLICT`: hash the broker already holds for this `(name, version)`. */
+  existing_hash?: string;
+  /** `PROTOCOL_CONFLICT`: servers (`name@host`) that hold it. */
+  servers?: string[];
+  /** `PROTOCOL_NOT_FOUND`: versions the broker does hold for the name (may be empty). */
+  versions?: string[];
+}
+
+// --- POST /set-protocol ---
+
+export interface SetProtocolRequest {
+  /** Peer id of the server. */
+  id: string;
+  name: string;
+  version: string;
+  /** Re-computed by the broker; a different value is `HASH_MISMATCH`. */
+  hash: string;
+  definition: ProtocolDefinition;
+}
+
+/** `{ok:false, error}` without `code` only for an unknown peer id. */
+export type SetProtocolResponse = { ok: true } | ProtocolErrorResponse | { ok: false; error: string };
+
+// --- POST /unset-protocol ---
+
+export interface UnsetProtocolRequest {
+  id: string;
+  /** Protocol to drop; all declarations of the peer when omitted. */
+  name?: string;
+}
+
+export type UnsetProtocolResponse = { ok: true; removed: number } | { ok: false; error: string };
+
+// --- POST /get-protocol ---
+
+export interface GetProtocolRequest {
+  name: string;
+  /** Highest version the broker holds when omitted (`0.0.0+sha` counts as lowest). */
+  version?: string;
+}
+
+/** `servers` = number of alive peers (replicas included) that declare the returned protocol. */
+export type GetProtocolResponse = { ok: true; protocol: StoredProtocol; servers: number } | ProtocolErrorResponse;
+
+/** Request / response pair per protocol route. */
+export interface ProtocolRouteMap {
+  "/set-protocol": { request: SetProtocolRequest; response: SetProtocolResponse };
+  "/unset-protocol": { request: UnsetProtocolRequest; response: UnsetProtocolResponse };
+  "/get-protocol": { request: GetProtocolRequest; response: GetProtocolResponse };
+}
 
 // --- Route table ---
 
@@ -292,6 +409,8 @@ export interface MeshSyncRequest {
   peers: Peer[];
   /** Undelivered messages the sender holds for peers that live on the receiver. Ids are the sender's. */
   messages: Message[];
+  /** Definitions declared by the sender's direct peers. Absent from 0.9.x brokers. */
+  protocols?: StoredProtocol[];
 }
 
 export interface MeshSyncResponse {
@@ -301,4 +420,6 @@ export interface MeshSyncResponse {
   peers: Peer[];
   /** Sender-side ids of the messages the receiver took over; the sender drops them. */
   accepted: number[];
+  /** Definitions declared by the receiver's direct peers. Absent from 0.9.x brokers. */
+  protocols?: StoredProtocol[];
 }
