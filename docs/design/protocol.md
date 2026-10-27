@@ -326,3 +326,9 @@ native build（PerryTS）での `fetch` / `crypto`（sha256）の可否は段 3 
 1. **native client の HTTPS / ヘッダ制約**: 既存 `broker.ts` の記録では PerryTS の `fetch` は全リクエストヘッダを落とす。このため native client では private repo の token 送信ができない。選択肢は「native は public repo のみ対応」か「native も token 必須にし別の HTTPS 手段を用意（依存ゼロ制約に反する可能性）」。本書は前者を仮定。
 2. **broker の定義永続化の要否**: 本書は永続化 + heartbeat `resend` の二重化を提案。永続化を省けば `broker.json` 形式は変わらないが、broker 再起動直後は server の次の heartbeat（最大 15 秒）まで `get_protocol` が `PROTOCOL_NOT_FOUND` になる。
 3. **`unset_protocol` の `name` 引数と複数宣言**: 合意済み仕様は引数なし。本書は 1 peer 複数 protocol を許し `name?` を足した。1 peer 1 protocol に限るなら `name` は不要で、`set_protocol` は既存宣言の置き換えになる。
+
+## 11. 決定（2026-10-28、ユーザー）
+
+1. native client の private repo: **対応しない**（node client も同様）。`set_protocol` が扱うのは public の GitHub / Gitea repo とローカル path のみ。6.3 の token 環境変数は実装しない。private repo は `REPO_UNREACHABLE` として扱う。
+2. broker の定義永続化: **する**（5.6 のとおり、`broker.json` に保存 + heartbeat `resend`）。
+3. 1 server 複数 protocol: **許す**（4.1 / 4.2 のとおり、`unset_protocol(name?)`）。
