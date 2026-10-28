@@ -76,10 +76,12 @@ describe("mcp stdio", () => {
     for (const t of TOOLS) expect(t.annotations.title).toBe(`${t.name} (v${VERSION})`);
     expect((tools.tools as { name: string }[]).map((t) => t.name).sort()).toEqual([
       "check_messages",
+      "get_broker",
       "get_protocol",
       "list_peers",
       "send_message",
       "send_ping",
+      "set_broker",
       "set_name",
       "set_protocol",
       "set_summary",
