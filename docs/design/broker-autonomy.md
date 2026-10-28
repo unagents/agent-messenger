@@ -205,3 +205,9 @@ MessengerClient.setBroker(url?: string, opts?: { persist?: boolean }): Promise<B
 1. `BrokerOptions.meshBrokers`（discovery を使わない固定相手）を残すか: 残すと既存 `mesh.test.ts` がそのまま使えるが、合意済み 1「相手探しは discovery のみ」の例外になる。提案は「テスト専用として残し README に載せない」。
 2. `set_broker` を env（`AGENT_MESSENGER_HOST`）より優先してよいか: 提案は優先（5.1）。不可なら env 設定時の `set_broker` は `BROKER_PINNED_BY_ENV` で拒否する。
 3. 旧 `config.json` の `brokers` 読み込み互換の廃止時期: 提案は 0.12.0。
+
+## 10. 決定（2026-10-28、w-cap）
+
+1. `meshBrokers`（固定相手）はテスト専用で残す。README には載せない。
+2. `set_broker` は env `AGENT_MESSENGER_HOST` より優先する（実行中の明示指定が最も新しい意図のため）。
+3. 旧 `config.json` の `brokers` 読み込み互換は 0.11.0 では残し、0.12.0 で廃止する。
