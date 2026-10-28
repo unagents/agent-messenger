@@ -75,6 +75,8 @@ describe("tool registry", () => {
       "set_protocol",
       "unset_protocol",
       "get_protocol",
+      "get_broker",
+      "set_broker",
     ]);
     for (const t of list) {
       expect(Object.keys(t)).toEqual(["name", "description", "inputSchema", "annotations"]);

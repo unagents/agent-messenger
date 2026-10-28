@@ -16,6 +16,8 @@ export { createStdioServer, LATEST_PROTOCOL_VERSION, SUPPORTED_PROTOCOL_VERSIONS
 export type { McpStdioServer, McpStdioServerOptions } from "./mcp.js";
 export { VERSION } from "./version.js";
 export { createMessengerClient } from "./messenger.js";
+export { formatBrokerInfo } from "./broker-info.js";
+export type { BrokerInfo, BrokerConnection } from "./broker-info.js";
 export type { MessengerClient, MessengerClientOptions, SendResult } from "./messenger.js";
 export type { PeerProtocolFilter, ProtocolDetail, ProtocolInfo, ProtocolPeer } from "./protocols.js";
 export type { InboundMessage, Notifier, MessageHandler, Inbox } from "./inbox.js";

@@ -2,9 +2,10 @@ import { spawn } from "node:child_process";
 import { mkdirSync, openSync } from "node:fs";
 import type { MessageMeta, PeerScope } from "@unagents/messenger-protocol";
 import { createBrokerClient } from "./broker.js";
+import type { BrokerInfo } from "./broker-info.js";
 import type { BrokerClient } from "./broker.js";
-import { FALLBACK_ENV, RESOLVE_RETRY_MS } from "./constants.js";
-import { loadConfig } from "./config.js";
+import { DEFAULT_HTTP_PORT, FALLBACK_ENV, RESOLVE_RETRY_MS } from "./constants.js";
+import { isLocalHost, loadConfig } from "./config.js";
 import type { ClientConfig, Env } from "./config.js";
 import { createInbox } from "./inbox.js";
 import type { InboundMessage, MessageHandler, Notifier } from "./inbox.js";
@@ -22,7 +23,9 @@ import {
   wireDecls,
 } from "./protocols.js";
 import type { PeerProtocolFilter, ProtocolDetail, ProtocolInfo, ProtocolPeer } from "./protocols.js";
-import { resolveBroker } from "./resolve.js";
+import { brokerError } from "./protocol-error.js";
+import { discoverBrokers, normalizeBrokerUrl, resolveBroker } from "./resolve.js";
+import { readSavedBroker, writeSavedBroker } from "./saved-broker.js";
 import type { Logger, ResolvedBroker } from "./resolve.js";
 import { createToolRegistry } from "./tools/registry.js";
 import type { ToolRegistry } from "./tools/types.js";
@@ -51,6 +54,8 @@ export interface MessengerClientOptions {
   autoStartBroker?: boolean;
   /** Stdio host only. Library users do not pass this. */
   notifier?: Notifier;
+  /** Test seam: replaces the HTTP broker client (unit tests run the client against in-memory brokers). Not part of the public API. */
+  brokerClient?: BrokerClient;
 }
 
 export interface SendResult {
@@ -77,6 +82,14 @@ export interface MessengerClient {
   unsetProtocol(name?: string): Promise<void>;
   /** The definition the broker holds for `name` (latest version when omitted). */
   getProtocol(name: string, version?: string): Promise<ProtocolDetail>;
+  /** The broker in use, where it came from, the saved one and the brokers discovery finds right now. */
+  getBroker(): Promise<BrokerInfo>;
+  /**
+   * Switch to the broker at `url` for this session (pinned; wins over `AGENT_MESSENGER_HOST`), keeping name, summary
+   * and protocol declarations. Without `url` the pin is dropped and the broker is resolved again.
+   * `persist` saves the choice in `client.json` (without `url`: removes the saved one).
+   */
+  setBroker(url?: string, opts?: { persist?: boolean }): Promise<BrokerInfo>;
   setName(name: string): Promise<void>;
   setSummary(summary: string): Promise<void>;
   checkMessages(): Promise<InboundMessage[]>;
@@ -136,11 +149,17 @@ export function createMessengerClient(options: MessengerClientOptions = {}): Mes
   const cfg: ClientConfig = options.config ?? loadConfig(env);
   const autoStart = options.autoStartBroker === true;
   const notifier = options.notifier;
-  const broker = createBrokerClient(cfg.token);
+  const broker = options.brokerClient ?? createBrokerClient(cfg.token);
   const peer = createPeerState({ name: options.name ?? cfg.name, summary: options.summary });
   const protocols = createProtocolState();
   const inbox = createInbox({ broker, peer, log, notifier, protocols });
-  const registry = createToolRegistry({ broker, peer, inbox, protocols });
+  const registry = createToolRegistry({
+    broker,
+    peer,
+    inbox,
+    protocols,
+    connection: { get: () => getBroker(), set: (url, persist) => setBroker(url, { persist: persist === true }) },
+  });
   const protocolEnv = { broker, peer, protocols };
 
   let connectPromise: Promise<void> | null = null;
@@ -149,6 +168,10 @@ export function createMessengerClient(options: MessengerClientOptions = {}): Mes
   let pollTimer: ReturnType<typeof setInterval> | null = null;
   let recoverTimer: ReturnType<typeof setInterval> | null = null;
   let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  /** `set_broker(url)` pin: first in the resolution order until `set_broker()` or the grace period after a failure ends it. */
+  let pin: string | null = null;
+  /** how the current broker was found */
+  let current: ResolvedBroker | null = null;
 
   // --- Link health + re-resolve ---
   //
@@ -180,7 +203,8 @@ export function createMessengerClient(options: MessengerClientOptions = {}): Mes
     try {
       const prev = broker.getUrl();
       log(`Re-resolving broker (${reason})`);
-      const r = await resolveBroker(cfg, broker, log, options.brokers);
+      const r = await resolveBroker(cfg, broker, log, options.brokers, pin);
+      current = r;
       await ensureBroker(cfg, env, broker, r, log, autoStart);
       if (closed) return; // close() won the race: never re-register after it
       await registerPeer(broker, peer, log, wireDecls(protocols));
@@ -222,6 +246,11 @@ export function createMessengerClient(options: MessengerClientOptions = {}): Mes
     if (failSince === null || resolving || closed) return;
     const now = Date.now();
     if (now - failSince < cfg.graceMs || now - lastResolveAttempt < RESOLVE_RETRY_MS) return;
+    if (pin !== null) {
+      // the grace period was spent retrying the pinned broker: give the pin up, resolve from the top (it does not come back by itself)
+      log(`Pinned broker ${pin} unreachable for ${cfg.graceMs} ms — pin dropped, resolving again`);
+      pin = null;
+    }
     await reresolve("connection failure");
   }
 
@@ -245,7 +274,8 @@ export function createMessengerClient(options: MessengerClientOptions = {}): Mes
   }
 
   async function doConnect(): Promise<void> {
-    const resolved = await resolveBroker(cfg, broker, log, options.brokers);
+    const resolved = await resolveBroker(cfg, broker, log, options.brokers, pin);
+    current = resolved;
     await ensureBroker(cfg, env, broker, resolved, log, autoStart);
 
     peer.gitRoot = detectGitRoot(peer.cwd);
@@ -329,6 +359,104 @@ export function createMessengerClient(options: MessengerClientOptions = {}): Mes
     return out;
   }
 
+  // --- get_broker / set_broker ---
+
+  async function getBroker(): Promise<BrokerInfo> {
+    const url = broker.getUrl();
+    const h = url ? await broker.health(url, 2000) : null;
+    const found = cfg.discoveryEnabled ? await discoverBrokers(cfg) : [];
+    return {
+      url,
+      id: h?.id ?? "",
+      version: h?.version ?? "",
+      mesh: h?.mesh === true,
+      source: current?.kind ?? "fallback",
+      pinned: pin !== null,
+      saved: readSavedBroker(cfg),
+      discovered: found.map((d) => ({ id: d.id, url: d.url, version: d.version, mesh: d.mesh, fallback: d.fallback })),
+    };
+  }
+
+  async function doSetBroker(urlArg: string | undefined, persist: boolean): Promise<BrokerInfo> {
+    const prev = broker.getUrl();
+    let target: string;
+    let resolvedAuto: ResolvedBroker | null = null;
+    if (urlArg === undefined) {
+      // no URL: drop the pin and resolve again (env, saved, discovery, local)
+      const r = await resolveBroker(cfg, broker, log, options.brokers, null);
+      broker.setUrl(prev);
+      target = r.url;
+      resolvedAuto = r;
+    } else {
+      target = normalizeBrokerUrl(urlArg, DEFAULT_HTTP_PORT);
+    }
+
+    if (target !== prev) {
+      if (!(await broker.health(target, 2000))) {
+        throw brokerError("BROKER_UNREACHABLE", `Broker ${target} is not reachable; still connected to ${prev || "(none)"}`);
+      }
+      if (peer.id) {
+        await inbox.carryOver(); // unread messages of the old broker stay readable here
+        await broker.post("/unregister", { id: peer.id }).catch(() => {}); // best effort
+        broker.setUrl(target);
+        try {
+          if (closed) throw new Error("client closed");
+          await registerPeer(broker, peer, log, wireDecls(protocols));
+          await resendDefinitions(protocolEnv, log);
+        } catch (e) {
+          broker.setUrl(prev);
+          try {
+            await registerPeer(broker, peer, log, wireDecls(protocols));
+            await resendDefinitions(protocolEnv, log);
+          } catch (e2) {
+            log(`Could not register again on ${prev}: ${errorMessage(e2)}`);
+          }
+          throw brokerError("BROKER_SWITCH_FAILED", `Could not register with ${target} (${errorMessage(e)}); back on ${prev}`);
+        }
+      } else {
+        broker.setUrl(target); // not connected yet: connect() will register here
+      }
+      log(`broker=${target} (via set_broker) — was ${prev || "(none)"}`);
+    }
+
+    pin = urlArg === undefined ? null : target;
+    if (resolvedAuto) {
+      current = resolvedAuto;
+    } else {
+      const host = new URL(target).hostname;
+      current = { url: target, host, source: "set_broker", kind: "set_broker", isLocal: isLocalHost(host) };
+    }
+    failSince = null;
+    let saveError: unknown = null;
+    if (persist) {
+      try {
+        writeSavedBroker(cfg, urlArg === undefined ? null : target);
+      } catch (e) {
+        saveError = e;
+      }
+    }
+    if (saveError !== null) throw brokerError("SAVE_FAILED", `Switched to ${target}, but could not save it: ${errorMessage(saveError)}`);
+    return getBroker();
+  }
+
+  async function setBroker(url?: string, opts: { persist?: boolean } = {}): Promise<BrokerInfo> {
+    if (closed) throw new Error("client closed");
+    if (resolving) throw brokerError("BROKER_SWITCH_BUSY", "Broker switch in progress; try again");
+    resolving = true; // poll / heartbeat / re-resolve stand still meanwhile
+    lastResolveAttempt = Date.now();
+    const p = doSetBroker(url, opts.persist === true);
+    inflightReresolve = p.then(
+      () => {},
+      () => {}
+    );
+    try {
+      return await p;
+    } finally {
+      resolving = false;
+      if (inflightReresolve !== null) inflightReresolve = null;
+    }
+  }
+
   // the broker answered `unknown peer` to a protocol call: register again (which also re-sends the definitions)
   protocols.reregister = () => reresolve("protocol call: unknown peer");
 
@@ -359,6 +487,8 @@ export function createMessengerClient(options: MessengerClientOptions = {}): Mes
     getProtocol(name, version) {
       return getProtocolDef(protocolEnv, name, version);
     },
+    getBroker,
+    setBroker,
     async setName(name) {
       const id = requireRegistered();
       const r = await broker.post("/set-name", { id, name });

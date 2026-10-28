@@ -11,12 +11,20 @@ const def = (name: string) => {
 }
 
 describe('jsonSchemaToZodShape', () => {
-  it('converts all nine tool definitions', () => {
-    expect(TOOL_DEFS).toHaveLength(9)
+  it('converts all eleven tool definitions', () => {
+    expect(TOOL_DEFS).toHaveLength(11)
     for (const d of TOOL_DEFS) {
       const shape = jsonSchemaToZodShape(d.inputSchema)
       expect(Object.keys(shape)).toEqual(Object.keys(d.inputSchema.properties))
     }
+  })
+
+  it('set_broker: url string and persist boolean, both optional; get_broker takes nothing', () => {
+    const s = z.object(jsonSchemaToZodShape(def('set_broker').inputSchema))
+    expect(s.safeParse({}).success).toBe(true)
+    expect(s.safeParse({ url: '10.0.0.2', persist: true }).success).toBe(true)
+    expect(s.safeParse({ persist: 'yes' }).success).toBe(false)
+    expect(Object.keys(jsonSchemaToZodShape(def('get_broker').inputSchema))).toEqual([])
   })
 
   it('send_message: to / message required, delivery optional', () => {

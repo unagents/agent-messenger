@@ -36,6 +36,12 @@ export interface Inbox {
   checkMessages(): Promise<InboundMessage[]>;
   /** Register a handler (library use). Returns an unregister function. */
   onMessage(handler: MessageHandler): () => void;
+  /**
+   * Before a broker switch: take what the old broker still holds for us, acknowledge everything buffered
+   * there, and keep it for `checkMessages` (message ids are per broker, so they are never acknowledged on the new one).
+   * Every step is best effort: an unreachable old broker skips it.
+   */
+  carryOver(): Promise<void>;
   /** Stop polling and dispatching (the client is closing). Pending work ends at its next step. */
   stop(): void;
 }
@@ -60,6 +66,8 @@ export function createInbox(opts: {
   /** ids already covered by an unread notice (cleared by checkMessages) */
   const notifiedIds = new Set<number>();
   const handlers: MessageHandler[] = [];
+  /** messages carried over from a previous broker (see `carryOver`); already acknowledged there */
+  const carried: InboundMessage[] = [];
   let dispatching = false;
   let stopped = false;
 
@@ -94,11 +102,12 @@ export function createInbox(opts: {
   /** body=pull: one unread notice when the buffer holds ids not yet covered by a notice. */
   async function notifyUnread() {
     if (!notifier) return;
-    if (localBuffer.length === 0) return;
-    if (!localBuffer.some((b) => !notifiedIds.has(b.id))) return;
-    const latest = localBuffer[localBuffer.length - 1];
-    const delivered = await notifier.unread(latest, localBuffer.length);
-    if (delivered) for (const b of localBuffer) notifiedIds.add(b.id);
+    const all = [...carried, ...localBuffer];
+    if (all.length === 0) return;
+    if (!all.some((b) => !notifiedIds.has(b.id))) return;
+    const latest = all[all.length - 1];
+    const delivered = await notifier.unread(latest, all.length);
+    if (delivered) for (const b of all) notifiedIds.add(b.id);
   }
 
   /** Hand every buffered message to the handlers; acknowledge after all succeeded, keep it (retry next tick) otherwise. */
@@ -170,13 +179,30 @@ export function createInbox(opts: {
     for (const b of localBuffer.slice()) {
       if (b.mode === "ping") await acknowledge(b.id);
     }
-    if (localBuffer.length === 0) return [];
+    if (localBuffer.length === 0 && carried.length === 0) return [];
     const ids = localBuffer.map((m) => m.id);
-    await broker.post("/acknowledge-messages", { id: peer.id as string, message_ids: ids }).catch(() => {});
-    const out = localBuffer.slice();
+    if (ids.length > 0) await broker.post("/acknowledge-messages", { id: peer.id as string, message_ids: ids }).catch(() => {});
+    const out = [...carried, ...localBuffer];
+    carried.length = 0;
     localBuffer.length = 0;
     notifiedIds.clear();
     return out;
+  }
+
+  async function carryOver() {
+    try {
+      await poll(false);
+    } catch {
+      // old broker unreachable: keep what we already hold
+    }
+    // pings carry no text worth keeping
+    const keep = localBuffer.filter((m) => m.mode !== "ping");
+    const ids = localBuffer.map((m) => m.id);
+    if (ids.length > 0 && peer.id) await broker.post("/acknowledge-messages", { id: peer.id, message_ids: ids }).catch(() => {});
+    carried.push(...keep);
+    localBuffer.length = 0;
+    notifiedIds.clear();
+    if (carried.length > MAX_BUFFER) carried.splice(0, carried.length - MAX_BUFFER);
   }
 
   function onMessage(handler: MessageHandler): () => void {
@@ -191,5 +217,5 @@ export function createInbox(opts: {
     stopped = true;
   }
 
-  return { poll, checkMessages, onMessage, stop };
+  return { poll, checkMessages, onMessage, carryOver, stop };
 }

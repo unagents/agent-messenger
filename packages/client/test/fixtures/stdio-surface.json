@@ -212,9 +212,40 @@
       "annotations": {
         "title": "get_protocol (v0.7.0)"
       }
+    },
+    {
+      "name": "get_broker",
+      "description": "[agent-messenger v0.7.0] Show which broker this session is connected to (url, id, version, mesh), where that choice came from (env, saved, discovery, fallback, set_broker), the saved broker, and the brokers that answer discovery right now.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      },
+      "annotations": {
+        "title": "get_broker (v0.7.0)"
+      }
+    },
+    {
+      "name": "set_broker",
+      "description": "[agent-messenger v0.7.0] Switch this session to another broker. Name, summary and protocol declarations carry over; unread messages stay readable with check_messages. The choice holds for this session and wins over AGENT_MESSENGER_HOST until the broker stays unreachable past the grace period. Without url the choice is dropped and the broker is resolved again.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "Broker to use: host, host:port or http://host:port (default port 7901). Omit to drop the choice and resolve again."
+          },
+          "persist": {
+            "type": "boolean",
+            "description": "Also save the choice in the client state file for later sessions (with no url: remove the saved one)."
+          }
+        }
+      },
+      "annotations": {
+        "title": "set_broker (v0.7.0)"
+      }
     }
   ],
-  "instructions": "agent-messenger v0.7.0\n\nYou are connected to agent-messenger. Other Claude Code sessions on this machine AND on remote hosts can find you and send you messages.\n\nInbound traffic arrives in the conversation as one of:\n- \"[agent-messenger] 未読 N 件（from <name>@<host>）…\" — an unread notice. Call check_messages to read the text, reply with send_message if needed, then resume your work.\n- \"[agent-messenger] ping（from <name>@<host>）\" or \"…）: <subject>\" — the sender is alive and working (subject = what it is working on, if given). Nothing to read, no reply needed.\n- \"[agent-messenger] message from <name>@<host>\" followed by the text — sent with delivery \"push\". Reply with send_message if needed, then resume your work.\n\nTools:\n- list_peers: discover sessions (scope: all / host / directory / repo)\n- send_message: send to a peer by name or id (cross-host). delivery \"pull\" (default) = the receiver sees only an unread notice; \"push\" = the text is shown directly\n- send_ping: send a liveness signal, optionally with a one-line subject such as the task id (e.g. periodically while working, so the orchestrator can tell progress from a stall)\n- set_name: give this session a stable name (e.g. \"master-cap\", \"agent-messenger\") so others can address it by name\n- set_summary: describe what you are working on (visible in list_peers)\n- check_messages: read unread message texts. Notices are delivered into the conversation automatically (via the session inbox socket, or via channel push when Claude Code was started with --dangerously-load-development-channels server:agent-messenger); call check_messages any time to read.\n- set_protocol: declare that this session serves a protocol (a public GitHub / Gitea repo or a local path holding protocol.json and PROTOCOL.md), so peers can find it with list_peers(protocol)\n- unset_protocol: stop serving a protocol (all of them when no name is given)\n- get_protocol: read a protocol definition held by the broker (protocol.json and PROTOCOL.md) to speak it\n- list_peers(protocol, version): only the sessions that serve that protocol (and version)\n- send_message(meta): meta = {protocol, version} tags the message with the protocol it follows; the receiver is warned when its served version differs\n\nOn start, call set_name (if not already named) and set_summary.",
+  "instructions": "agent-messenger v0.7.0\n\nYou are connected to agent-messenger. Other Claude Code sessions on this machine AND on remote hosts can find you and send you messages.\n\nInbound traffic arrives in the conversation as one of:\n- \"[agent-messenger] 未読 N 件（from <name>@<host>）…\" — an unread notice. Call check_messages to read the text, reply with send_message if needed, then resume your work.\n- \"[agent-messenger] ping（from <name>@<host>）\" or \"…）: <subject>\" — the sender is alive and working (subject = what it is working on, if given). Nothing to read, no reply needed.\n- \"[agent-messenger] message from <name>@<host>\" followed by the text — sent with delivery \"push\". Reply with send_message if needed, then resume your work.\n\nTools:\n- list_peers: discover sessions (scope: all / host / directory / repo)\n- send_message: send to a peer by name or id (cross-host). delivery \"pull\" (default) = the receiver sees only an unread notice; \"push\" = the text is shown directly\n- send_ping: send a liveness signal, optionally with a one-line subject such as the task id (e.g. periodically while working, so the orchestrator can tell progress from a stall)\n- set_name: give this session a stable name (e.g. \"master-cap\", \"agent-messenger\") so others can address it by name\n- set_summary: describe what you are working on (visible in list_peers)\n- check_messages: read unread message texts. Notices are delivered into the conversation automatically (via the session inbox socket, or via channel push when Claude Code was started with --dangerously-load-development-channels server:agent-messenger); call check_messages any time to read.\n- set_protocol: declare that this session serves a protocol (a public GitHub / Gitea repo or a local path holding protocol.json and PROTOCOL.md), so peers can find it with list_peers(protocol)\n- unset_protocol: stop serving a protocol (all of them when no name is given)\n- get_protocol: read a protocol definition held by the broker (protocol.json and PROTOCOL.md) to speak it\n- list_peers(protocol, version): only the sessions that serve that protocol (and version)\n- send_message(meta): meta = {protocol, version} tags the message with the protocol it follows; the receiver is warned when its served version differs\n- get_broker: show the broker this session uses, where it came from (env / saved / discovery / fallback / set_broker), the saved one and the brokers discovery finds now\n- set_broker: switch this session to another broker (url), keeping name, summary and protocols; without url the choice is dropped and the broker is resolved again. persist: true saves it for later sessions\n\nOn start, call set_name (if not already named) and set_summary.",
   "capabilities": {
     "experimental": {
       "claude/channel": {}

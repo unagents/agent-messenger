@@ -3,7 +3,7 @@ import type { JsonObjectSchema } from '@unagents/messenger-client/tools'
 
 /**
  * Convert the JSON Schema subset used by the tool definitions into a zod v4 raw shape.
- * - `type: "string"` and `type: "object"` (one level, string members; `send_message` `meta`) are supported
+ * - `type: "string"`, `type: "boolean"` (`set_broker` `persist`) and `type: "object"` (one level, string members; `send_message` `meta`) are supported
  *   (anything else throws).
  * - `enum` is NOT enforced: it maps to a plain `z.string()` so that a bad value reaches the
  *   tool handler, which answers with its own `Invalid delivery: ...` text.
@@ -17,6 +17,8 @@ export function jsonSchemaToZodShape(schema: JsonObjectSchema): Record<string, z
     let field: z.ZodType
     if (type === 'string') {
       field = z.string()
+    } else if (type === 'boolean') {
+      field = z.boolean()
     } else if (type === 'object') {
       const nestedRequired = new Set(prop.required ?? [])
       const nested: Record<string, z.ZodType> = {}

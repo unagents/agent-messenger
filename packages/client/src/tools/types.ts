@@ -1,11 +1,12 @@
 import type { BrokerClient } from "../broker.js";
+import type { BrokerConnection } from "../broker-info.js";
 import type { Inbox } from "../inbox.js";
 import type { PeerState } from "../peer.js";
 import type { ProtocolState } from "../protocols.js";
 
 /** JSON Schema subset used by the tools: string properties, and one level of object (`send_message` `meta`). */
 export interface JsonPropertySchema {
-  type: "string" | "object";
+  type: "string" | "object" | "boolean";
   enum?: string[];
   description?: string;
   properties?: Record<string, { type: "string"; description?: string }>;
@@ -29,6 +30,8 @@ export interface ToolContext {
   peer: PeerState;
   inbox: Inbox;
   protocols: ProtocolState;
+  /** get_broker / set_broker. Absent in a bare registry (tests); the tools then say they are unavailable. */
+  connection?: BrokerConnection;
 }
 
 export interface ToolDef {

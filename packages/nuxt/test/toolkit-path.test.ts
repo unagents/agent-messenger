@@ -46,10 +46,10 @@ afterEach(async () => {
 })
 
 describe('toolkit registration path', () => {
-  it('tools/list shows the nine tools, delivery without enum', async () => {
+  it('tools/list shows the eleven tools, delivery without enum', async () => {
     const c = await connect()
     const { tools } = await c.listTools()
-    expect(tools.map((t) => t.name).sort()).toEqual(['check_messages', 'get_protocol', 'list_peers', 'send_message', 'send_ping', 'set_name', 'set_protocol', 'set_summary', 'unset_protocol'])
+    expect(tools.map((t) => t.name).sort()).toEqual(['check_messages', 'get_broker', 'get_protocol', 'list_peers', 'send_message', 'send_ping', 'set_broker', 'set_name', 'set_protocol', 'set_summary', 'unset_protocol'])
     const send = tools.find((t) => t.name === 'send_message')!
     const props = send.inputSchema.properties as Record<string, { type?: string, enum?: unknown }>
     expect(props.delivery.type).toBe('string')

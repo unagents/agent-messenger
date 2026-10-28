@@ -24,11 +24,11 @@ function fakeClient(peerId: string | null = 'x'): { client: MessengerClient, pos
 }
 
 describe('toMcpToolDefinitions', () => {
-  it('maps the nine tools in order with title / description from toolDescriptors()', () => {
+  it('maps the eleven tools in order with title / description from toolDescriptors()', () => {
     const defs = toMcpToolDefinitions(() => undefined)
     const desc = toolDescriptors()
     expect(defs.map((d) => d.name)).toEqual(TOOL_DEFS.map((d) => d.name))
-    expect(defs).toHaveLength(9)
+    expect(defs).toHaveLength(11)
     defs.forEach((d, i) => {
       expect(d.title).toBe(desc[i].annotations.title)
       expect(d.annotations).toEqual({ title: desc[i].annotations.title })
@@ -37,7 +37,7 @@ describe('toMcpToolDefinitions', () => {
     })
   })
 
-  it('exposes the nine tools by name, in order', () => {
+  it('exposes the eleven tools by name, in order', () => {
     expect(toMcpToolDefinitions(() => undefined).map((d) => d.name)).toEqual([
       'list_peers',
       'send_message',
@@ -48,6 +48,8 @@ describe('toMcpToolDefinitions', () => {
       'set_protocol',
       'unset_protocol',
       'get_protocol',
+      'get_broker',
+      'set_broker',
     ])
   })
 

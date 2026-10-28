@@ -1,5 +1,6 @@
 import type { Peer } from "@unagents/messenger-protocol";
 import type { InboundMessage } from "../inbox.js";
+import { formatBrokerInfo } from "../broker-info.js";
 import { errorMessage, protocolErrorCode } from "../protocol-error.js";
 import { getProtocol, listPeers, parseMeta, planOutgoing, setProtocol, unsetProtocol } from "../protocols.js";
 import { normalizeVersion } from "../semver.js";
@@ -27,6 +28,8 @@ Tools:
 - get_protocol: read a protocol definition held by the broker (protocol.json and PROTOCOL.md) to speak it
 - list_peers(protocol, version): only the sessions that serve that protocol (and version)
 - send_message(meta): meta = {protocol, version} tags the message with the protocol it follows; the receiver is warned when its served version differs
+- get_broker: show the broker this session uses, where it came from (env / saved / discovery / fallback / set_broker), the saved one and the brokers discovery finds now
+- set_broker: switch this session to another broker (url), keeping name, summary and protocols; without url the choice is dropped and the broker is resolved again. persist: true saves it for later sessions
 
 On start, call set_name (if not already named) and set_summary.`;
 
@@ -62,7 +65,7 @@ export function formatMessage(m: InboundMessage): string {
   return `From ${who}${host} at ${m.sent_at}:\n${m.protocol_line ? `${m.protocol_line}\n` : ""}${m.text}`;
 }
 
-/** The nine tools. Descriptions carry no version prefix; `toolDescriptors()` adds it. */
+/** The eleven tools. Descriptions carry no version prefix; `toolDescriptors()` adds it. */
 export const TOOL_DEFS: readonly ToolDef[] = [
   {
     name: "list_peers",
@@ -308,6 +311,46 @@ export const TOOL_DEFS: readonly ToolDef[] = [
           p.doc === "" ? "(none)" : p.doc,
         ];
         return text(lines.join("\n"));
+      });
+    },
+  },
+  {
+    name: "get_broker",
+    description:
+      "Show which broker this session is connected to (url, id, version, mesh), where that choice came from (env, saved, discovery, fallback, set_broker), the saved broker, and the brokers that answer discovery right now.",
+    inputSchema: { type: "object", properties: {} },
+    requiresRegistration: false,
+    handler(_args, ctx) {
+      return guarded(async () => {
+        if (!ctx.connection) return text("get_broker is not available in this host.", true);
+        return text(formatBrokerInfo(await ctx.connection.get()));
+      });
+    },
+  },
+  {
+    name: "set_broker",
+    description:
+      "Switch this session to another broker. Name, summary and protocol declarations carry over; unread messages stay readable with check_messages. The choice holds for this session and wins over AGENT_MESSENGER_HOST until the broker stays unreachable past the grace period. Without url the choice is dropped and the broker is resolved again.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        url: {
+          type: "string",
+          description: "Broker to use: host, host:port or http://host:port (default port 7901). Omit to drop the choice and resolve again.",
+        },
+        persist: {
+          type: "boolean",
+          description: "Also save the choice in the client state file for later sessions (with no url: remove the saved one).",
+        },
+      },
+    },
+    requiresRegistration: false,
+    handler(args, ctx) {
+      return guarded(async () => {
+        if (!ctx.connection) return text("set_broker is not available in this host.", true);
+        const url = args.url === undefined || args.url === "" ? undefined : String(args.url);
+        const persist = args.persist === true || args.persist === "true";
+        return text(formatBrokerInfo(await ctx.connection.set(url, persist)));
       });
     },
   },

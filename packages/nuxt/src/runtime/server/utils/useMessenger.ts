@@ -1,4 +1,5 @@
 import type {
+  BrokerInfo,
   InboundMessage,
   MessageMeta,
   PeerProtocolFilter,
@@ -20,6 +21,8 @@ export interface MessengerApi {
   setProtocol(repo: string, version?: string): Promise<ProtocolInfo>
   unsetProtocol(name?: string): Promise<void>
   getProtocol(name: string, version?: string): Promise<ProtocolDetail>
+  getBroker(): Promise<BrokerInfo>
+  setBroker(url?: string, opts?: { persist?: boolean }): Promise<BrokerInfo>
 }
 
 /**
@@ -68,6 +71,14 @@ export function useMessenger(): MessengerApi {
     async getProtocol(name, version) {
       await ready()
       return c.getProtocol(name, version)
+    },
+    async getBroker() {
+      await ready()
+      return c.getBroker()
+    },
+    async setBroker(url, opts) {
+      await ready()
+      return c.setBroker(url, opts)
     },
   }
 }

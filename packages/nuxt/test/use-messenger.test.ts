@@ -21,6 +21,8 @@ function fakeClient(): MessengerClient {
     setProtocol: rec('setProtocol'),
     unsetProtocol: rec('unsetProtocol'),
     getProtocol: rec('getProtocol'),
+    getBroker: rec('getBroker'),
+    setBroker: rec('setBroker'),
   } as unknown as MessengerClient
 }
 
@@ -65,6 +67,18 @@ describe('useMessenger protocol API', () => {
       { fn: 'unsetProtocol', args: ['p'] },
       { fn: 'unsetProtocol', args: [undefined] },
       { fn: 'getProtocol', args: ['p', '1.0.0'] },
+    ])
+  })
+
+  it('delegates getBroker / setBroker', async () => {
+    const m = useMessenger()
+    await m.getBroker()
+    await m.setBroker('10.0.0.2', { persist: true })
+    await m.setBroker()
+    expect(calls).toEqual([
+      { fn: 'getBroker', args: [] },
+      { fn: 'setBroker', args: ['10.0.0.2', { persist: true }] },
+      { fn: 'setBroker', args: [undefined, undefined] },
     ])
   })
 })

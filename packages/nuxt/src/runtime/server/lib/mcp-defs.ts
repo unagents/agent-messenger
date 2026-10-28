@@ -14,7 +14,7 @@ export interface McpToolDefinitionInput {
 }
 
 /**
- * Map the nine shared tool definitions to the shape `defineMcpTool` of @nuxtjs/mcp-toolkit takes.
+ * Map the shared tool definitions to the shape `defineMcpTool` of @nuxtjs/mcp-toolkit takes.
  * `getClient` is evaluated on every call so a reloaded worker uses its current client.
  * Unregistered guard, unknown tool and the `Error (<name>): ...` wrapping come from the registry.
  */
