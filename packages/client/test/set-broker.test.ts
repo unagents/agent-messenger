@@ -278,3 +278,28 @@ describe("pin and failure", () => {
     expect((await client.getBroker()).url).toBe(a.url);
   }, 15000);
 });
+
+describe("unread notices after a switch", () => {
+  it("a carried message and a new message with the same numeric id both get a notice", async () => {
+    const [a, b] = [A(), B()];
+    const notices: { latest: string; count: number }[] = [];
+    const dir = mkdtempSync(join(tmpdir(), "am-setbroker-"));
+    dirs.push(dir);
+    const cfg = loadConfig({ AGENT_MESSENGER_DISCOVERY: "off", AGENT_MESSENGER_HOST: "10.0.0.1", AGENT_MESSENGER_CONFIG: join(dir, "c.json"), AGENT_MESSENGER_CLIENT_STATE: join(dir, "s.json") });
+    const notifier = {
+      unread: async (latest: { text: string }, count: number) => (notices.push({ latest: latest.text, count }), true),
+      ping: async () => {},
+      push: async () => false,
+    };
+    const client = createMessengerClient({ config: cfg, log: () => {}, name: "alice", brokerClient: netClient([a, b]), notifier });
+    clients.push(client);
+    await client.connect();
+    a.queue(client.peer.id!, "left on A");
+    await client.setBroker(b.url);
+    await new Promise((r) => setTimeout(r, 1300)); // the poll loop runs once per second
+    expect(notices.at(-1)).toEqual({ latest: "left on A", count: 1 });
+    b.queue(client.peer.id!, "arrived on B"); // same numeric id as the carried message
+    await new Promise((r) => setTimeout(r, 1300));
+    expect(notices.at(-1)).toEqual({ latest: "arrived on B", count: 2 });
+  }, 10000);
+});

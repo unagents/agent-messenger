@@ -165,6 +165,7 @@ function cliEnv(registryUrl, pkgsDir, extra = {}) {
     AGENT_MESSENGER_PORT: String(REMOTE_HOST ? REMOTE_PORT : PORT),
     AGENT_MESSENGER_TOKEN: TOKEN,
     AGENT_MESSENGER_CONFIG: join(TMP, "no-config.json"),
+    AGENT_MESSENGER_CLIENT_STATE: join(TMP, "no-client.json"),
     AGENT_MESSENGER_DISCOVERY_PORT: String(DISCOVERY_PORT),
     AGENT_MESSENGER_DISCOVERY_ADDR: DISCOVERY_ADDR,
     ...(REMOTE_HOST ? { AGENT_MESSENGER_HOST: REMOTE_HOST } : {}),
@@ -504,7 +505,7 @@ async function startMeshBroker(id, port, dport, token, targets) {
     AGENT_MESSENGER_BIND: "127.0.0.1",
     AGENT_MESSENGER_TOKEN: token,
     AGENT_MESSENGER_BROKER_ID: id,
-    AGENT_MESSENGER_STATE: join(TMP, `mesh-${id}.json`),
+    AGENT_MESSENGER_STATE: join(PROTO_DIR, `mesh-${id}.json`),
     AGENT_MESSENGER_DISCOVERY: "on",
     AGENT_MESSENGER_DISCOVERY_PORT: String(dport),
     AGENT_MESSENGER_DISCOVERY_ADDR: "127.0.0.1",
@@ -525,6 +526,7 @@ async function meshFlow(registryUrl, pkgs) {
   const [pa, pb, pc] = [PORT + 20, PORT + 22, PORT + 24];
   const [da, db, dc] = [DISCOVERY_PORT + 20, DISCOVERY_PORT + 22, DISCOVERY_PORT + 24];
   const targets = [da, db, dc].map((d) => `127.0.0.1:${d}`).join(",");
+  mkdirSync(PROTO_DIR, { recursive: true });
   const A = await startMeshBroker("mesh-a", pa, da, TOKEN, targets);
   const B = await startMeshBroker("mesh-b", pb, db, TOKEN, targets);
   const opened = [];
@@ -552,7 +554,7 @@ async function meshFlow(registryUrl, pkgs) {
         AGENT_MESSENGER_CLIENT: "node",
         AGENT_MESSENGER_DISCOVERY_PORT: String(da),
         AGENT_MESSENGER_DISCOVERY_TARGETS: targets,
-        AGENT_MESSENGER_CLIENT_STATE: join(TMP, "mesh-client.json"),
+        AGENT_MESSENGER_CLIENT_STATE: join(PROTO_DIR, "mesh-client.json"),
         AGENT_MESSENGER_GRACE_MS: "2000",
         ...extra,
       });

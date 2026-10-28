@@ -68,6 +68,8 @@ export function createInbox(opts: {
   const handlers: MessageHandler[] = [];
   /** messages carried over from a previous broker (see `carryOver`); already acknowledged there */
   const carried: InboundMessage[] = [];
+  /** an unread notice already covers the carried messages (their ids are from another broker, so they are not in `notifiedIds`) */
+  let carriedNotified = false;
   let dispatching = false;
   let stopped = false;
 
@@ -104,10 +106,13 @@ export function createInbox(opts: {
     if (!notifier) return;
     const all = [...carried, ...localBuffer];
     if (all.length === 0) return;
-    if (!all.some((b) => !notifiedIds.has(b.id))) return;
+    if (!localBuffer.some((b) => !notifiedIds.has(b.id)) && (carried.length === 0 || carriedNotified)) return;
     const latest = all[all.length - 1];
     const delivered = await notifier.unread(latest, all.length);
-    if (delivered) for (const b of all) notifiedIds.add(b.id);
+    if (delivered) {
+      for (const b of localBuffer) notifiedIds.add(b.id);
+      if (carried.length > 0) carriedNotified = true;
+    }
   }
 
   /** Hand every buffered message to the handlers; acknowledge after all succeeded, keep it (retry next tick) otherwise. */
@@ -184,6 +189,7 @@ export function createInbox(opts: {
     if (ids.length > 0) await broker.post("/acknowledge-messages", { id: peer.id as string, message_ids: ids }).catch(() => {});
     const out = [...carried, ...localBuffer];
     carried.length = 0;
+    carriedNotified = false;
     localBuffer.length = 0;
     notifiedIds.clear();
     return out;
@@ -200,6 +206,7 @@ export function createInbox(opts: {
     const ids = localBuffer.map((m) => m.id);
     if (ids.length > 0 && peer.id) await broker.post("/acknowledge-messages", { id: peer.id, message_ids: ids }).catch(() => {});
     carried.push(...keep);
+    carriedNotified = false;
     localBuffer.length = 0;
     notifiedIds.clear();
     if (carried.length > MAX_BUFFER) carried.splice(0, carried.length - MAX_BUFFER);

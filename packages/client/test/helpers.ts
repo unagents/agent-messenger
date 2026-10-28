@@ -6,6 +6,8 @@
  */
 import { spawn } from "node:child_process";
 import type { ChildProcess } from "node:child_process";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const ROOT = fileURLToPath(new URL("../../../", import.meta.url));
@@ -20,6 +22,8 @@ export function baseEnv(): Record<string, string | undefined> {
   delete env.AGENT_MESSENGER_DELIVERY;
   delete env.AGENT_MESSENGER_BROKER_CMD;
   for (const k of Object.keys(env)) if (k.startsWith("AGENT_MESSENGER_")) delete env[k];
+  // a broker saved with set_broker(persist) on this machine must never steer a test: point at a file that does not exist
+  env.AGENT_MESSENGER_CLIENT_STATE = join(tmpdir(), `am-test-no-client-state-${process.pid}.json`);
   return env;
 }
 
