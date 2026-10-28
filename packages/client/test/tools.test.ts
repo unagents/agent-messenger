@@ -65,7 +65,17 @@ describe("tool registry", () => {
   it("list() carries descriptors only (no handler / requiresRegistration)", () => {
     const { registry } = setup({});
     const list = registry.list();
-    expect(list.map((t) => t.name)).toEqual(["list_peers", "send_message", "send_ping", "set_name", "set_summary", "check_messages"]);
+    expect(list.map((t) => t.name)).toEqual([
+      "list_peers",
+      "send_message",
+      "send_ping",
+      "set_name",
+      "set_summary",
+      "check_messages",
+      "set_protocol",
+      "unset_protocol",
+      "get_protocol",
+    ]);
     for (const t of list) {
       expect(Object.keys(t)).toEqual(["name", "description", "inputSchema", "annotations"]);
     }

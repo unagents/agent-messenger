@@ -1,11 +1,20 @@
 import type { BrokerClient } from "../broker.js";
 import type { Inbox } from "../inbox.js";
 import type { PeerState } from "../peer.js";
+import type { ProtocolState } from "../protocols.js";
 
-/** JSON Schema subset used by the six tools. */
+/** JSON Schema subset used by the tools: string properties, and one level of object (`send_message` `meta`). */
+export interface JsonPropertySchema {
+  type: "string" | "object";
+  enum?: string[];
+  description?: string;
+  properties?: Record<string, { type: "string"; description?: string }>;
+  required?: string[];
+}
+
 export interface JsonObjectSchema {
   type: "object";
-  properties: Record<string, { type: "string"; enum?: string[]; description?: string }>;
+  properties: Record<string, JsonPropertySchema>;
   required?: string[];
 }
 
@@ -15,9 +24,11 @@ export interface ToolResult {
 }
 
 export interface ToolContext {
-  broker: Pick<BrokerClient, "post">;
+  /** `health` is only used to name the broker version in BROKER_UNSUPPORTED. */
+  broker: Pick<BrokerClient, "post"> & Partial<Pick<BrokerClient, "health">>;
   peer: PeerState;
   inbox: Inbox;
+  protocols: ProtocolState;
 }
 
 export interface ToolDef {
@@ -25,7 +36,7 @@ export interface ToolDef {
   /** Plain description without the version prefix. */
   description: string;
   inputSchema: JsonObjectSchema;
-  /** `false` only for list_peers. */
+  /** `false` for list_peers and get_protocol. */
   requiresRegistration: boolean;
   handler(args: Record<string, unknown>, ctx: ToolContext): Promise<ToolResult>;
 }

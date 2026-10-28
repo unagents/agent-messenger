@@ -1,5 +1,11 @@
 import { connect as netConnect } from "node:net";
-import type { BrokerPostRoute, BrokerRequest, BrokerResponse, HealthResponse } from "@unagents/messenger-protocol";
+import type {
+  BrokerPostRoute,
+  BrokerRouteMap,
+  HealthResponse,
+  ProtocolRoute,
+  ProtocolRouteMap,
+} from "@unagents/messenger-protocol";
 import { HEALTH_ROUTE } from "./constants.js";
 
 /**
@@ -11,11 +17,15 @@ import { HEALTH_ROUTE } from "./constants.js";
  * sent) — see `reports/20260928-ts-03-client.md`. The same code path is used
  * under node.
  */
+/** Every POST route: the legacy table plus the protocol registry routes. */
+type PostRoute = BrokerPostRoute | ProtocolRoute;
+type PostRouteMap = BrokerRouteMap & ProtocolRouteMap;
+
 export interface BrokerClient {
   setUrl(url: string): void;
   getUrl(): string;
   /** POST JSON to the broker. Throws on non-2xx. */
-  post<R extends BrokerPostRoute>(path: R, body: BrokerRequest<R>, opts?: { timeoutMs?: number }): Promise<BrokerResponse<R>>;
+  post<R extends PostRoute>(path: R, body: PostRouteMap[R]["request"], opts?: { timeoutMs?: number }): Promise<PostRouteMap[R]["response"]>;
   /** GET /health; `null` when unreachable or non-2xx. */
   health(url?: string, timeoutMs?: number): Promise<HealthResponse | null>;
 }

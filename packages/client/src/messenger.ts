@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { mkdirSync, openSync } from "node:fs";
-import type { Peer, PeerScope } from "@unagents/messenger-protocol";
+import type { MessageMeta, PeerScope } from "@unagents/messenger-protocol";
 import { createBrokerClient } from "./broker.js";
 import type { BrokerClient } from "./broker.js";
 import { FALLBACK_ENV, RESOLVE_RETRY_MS } from "./constants.js";
@@ -10,6 +10,18 @@ import { createInbox } from "./inbox.js";
 import type { InboundMessage, MessageHandler, Notifier } from "./inbox.js";
 import { createPeerState, detectGitRoot, detectTty, registerPeer } from "./peer.js";
 import type { PeerState } from "./peer.js";
+import {
+  createProtocolState,
+  getProtocol as getProtocolDef,
+  listPeers as listPeersFiltered,
+  parseMeta,
+  planOutgoing,
+  resendDefinitions,
+  setProtocol as setProtocolDef,
+  unsetProtocol as unsetProtocolDef,
+  wireDecls,
+} from "./protocols.js";
+import type { PeerProtocolFilter, ProtocolDetail, ProtocolInfo, ProtocolPeer } from "./protocols.js";
 import { resolveBroker } from "./resolve.js";
 import type { Logger, ResolvedBroker } from "./resolve.js";
 import { createToolRegistry } from "./tools/registry.js";
@@ -45,6 +57,8 @@ export interface SendResult {
   to_id: string;
   to_name: string;
   message_id: number;
+  /** Set when the text was prefixed with a protocol version warning (design 6.4); the same line the tool reports. */
+  warning?: string;
 }
 
 export interface MessengerClient {
@@ -53,9 +67,16 @@ export interface MessengerClient {
   readonly registry: ToolRegistry;
   connect(): Promise<void>;
   close(): Promise<void>;
-  send(to: string, text: string, delivery?: "pull" | "push"): Promise<SendResult>;
+  /** `meta` tags the message with a protocol (both fields required, else INVALID_META). */
+  send(to: string, text: string, delivery?: "pull" | "push", meta?: MessageMeta): Promise<SendResult>;
   ping(to: string, subject?: string): Promise<SendResult>;
-  listPeers(scope?: PeerScope): Promise<Peer[]>;
+  listPeers(scope?: PeerScope, filter?: PeerProtocolFilter): Promise<ProtocolPeer[]>;
+  /** Serve the protocol of a repo (GitHub / Gitea / local path): read, check and register its definition. */
+  setProtocol(repo: string, version?: string): Promise<ProtocolInfo>;
+  /** Stop serving `name`, or every protocol when omitted. */
+  unsetProtocol(name?: string): Promise<void>;
+  /** The definition the broker holds for `name` (latest version when omitted). */
+  getProtocol(name: string, version?: string): Promise<ProtocolDetail>;
   setName(name: string): Promise<void>;
   setSummary(summary: string): Promise<void>;
   checkMessages(): Promise<InboundMessage[]>;
@@ -117,8 +138,10 @@ export function createMessengerClient(options: MessengerClientOptions = {}): Mes
   const notifier = options.notifier;
   const broker = createBrokerClient(cfg.token);
   const peer = createPeerState({ name: options.name ?? cfg.name, summary: options.summary });
-  const inbox = createInbox({ broker, peer, log, notifier });
-  const registry = createToolRegistry({ broker, peer, inbox });
+  const protocols = createProtocolState();
+  const inbox = createInbox({ broker, peer, log, notifier, protocols });
+  const registry = createToolRegistry({ broker, peer, inbox, protocols });
+  const protocolEnv = { broker, peer, protocols };
 
   let connectPromise: Promise<void> | null = null;
   let closePromise: Promise<void> | null = null;
@@ -160,7 +183,9 @@ export function createMessengerClient(options: MessengerClientOptions = {}): Mes
       const r = await resolveBroker(cfg, broker, log, options.brokers);
       await ensureBroker(cfg, env, broker, r, log, autoStart);
       if (closed) return; // close() won the race: never re-register after it
-      await registerPeer(broker, peer, log);
+      await registerPeer(broker, peer, log, wireDecls(protocols));
+      // a re-registered peer starts without bodies at the broker: send every definition again (design 5.5)
+      await resendDefinitions(protocolEnv, log);
       log(`broker=${broker.getUrl()} (${r.isLocal ? "local" : "remote"}, via ${r.source})${prev === broker.getUrl() ? "" : ` — was ${prev}`}`);
       failSince = null;
     } catch (e) {
@@ -203,12 +228,15 @@ export function createMessengerClient(options: MessengerClientOptions = {}): Mes
   async function heartbeat() {
     if (resolving || closed) return;
     try {
-      const r = await broker.post("/heartbeat", { id: peer.id as string });
+      const decls = wireDecls(protocols);
+      const r = await broker.post("/heartbeat", decls === undefined ? { id: peer.id as string } : { id: peer.id as string, protocols: decls });
       if (r && r.ok === false) {
         log(`Heartbeat rejected (${r.error}) — re-registering`);
         await reresolve("heartbeat rejected");
       } else {
         noteOk();
+        // the broker lacks the body of some declarations (restart, GC): send them again (design 5.5)
+        if (r && r.ok && Array.isArray(r.resend) && r.resend.length > 0) await resendDefinitions(protocolEnv, log, r.resend);
       }
     } catch {
       // broker down; the grace period / re-resolve picks it up
@@ -226,7 +254,7 @@ export function createMessengerClient(options: MessengerClientOptions = {}): Mes
     log(`cwd=${peer.cwd} git_root=${peer.gitRoot ?? "(none)"} tty=${peer.tty ?? "(unknown)"} name=${peer.name || "(unset)"}`);
     if (notifier) log(`delivery=${cfg.delivery} session_socket=${cfg.sessionSocket || "(none)"}`);
 
-    await registerPeer(broker, peer, log);
+    await registerPeer(broker, peer, log, wireDecls(protocols));
     if (closed) return; // close() won the race: it unregisters, no timers
 
     pollTimer = setInterval(pollLoop, cfg.pollIntervalMs);
@@ -284,36 +312,52 @@ export function createMessengerClient(options: MessengerClientOptions = {}): Mes
     return peer.id;
   }
 
-  async function sendMode(to: string, text: string, mode: "pull" | "push" | "ping"): Promise<SendResult> {
+  async function sendMode(to: string, text: string, mode: "pull" | "push" | "ping", meta?: MessageMeta): Promise<SendResult> {
     const id = requireRegistered();
-    const r = await broker.post("/send-message", { from_id: id, from_name: peer.name, to, text, mode });
+    const plan = mode === "ping" ? { text, meta, warning: undefined } : planOutgoing(protocols, to, text, meta);
+    const r = await broker.post("/send-message", {
+      from_id: id,
+      from_name: peer.name,
+      to,
+      text: plan.text,
+      mode,
+      ...(plan.meta === undefined ? {} : { meta: plan.meta }),
+    });
     if (!r.ok) throw new Error(`Failed to send: ${r.error}`);
-    return { to_id: r.to_id, to_name: r.to_name ?? "", message_id: r.message_id };
+    const out: SendResult = { to_id: r.to_id, to_name: r.to_name ?? "", message_id: r.message_id };
+    if (plan.warning) out.warning = plan.warning;
+    return out;
   }
+
+  // the broker answered `unknown peer` to a protocol call: register again (which also re-sends the definitions)
+  protocols.reregister = () => reresolve("protocol call: unknown peer");
 
   return {
     peer,
     registry,
     connect,
     close,
-    async send(to, text, delivery) {
+    async send(to, text, delivery, meta) {
       requireRegistered();
       const d = delivery === undefined ? "pull" : String(delivery);
       if (d !== "pull" && d !== "push") throw new Error(`Invalid delivery: ${d} (use "pull" or "push")`);
-      return sendMode(to, text, d);
+      return sendMode(to, text, d, parseMeta(meta));
     },
     ping(to, subject) {
       return sendMode(to, subject ?? "", "ping");
     },
-    async listPeers(scope = "all") {
+    async listPeers(scope = "all", filter) {
       requireRegistered();
-      return broker.post("/list-peers", {
-        scope,
-        cwd: peer.cwd,
-        git_root: peer.gitRoot,
-        hostname: peer.hostname,
-        exclude_id: peer.id ?? undefined,
-      });
+      return listPeersFiltered(protocolEnv, scope, filter);
+    },
+    setProtocol(repo, version) {
+      return setProtocolDef(protocolEnv, repo, version);
+    },
+    async unsetProtocol(name) {
+      await unsetProtocolDef(protocolEnv, name);
+    },
+    getProtocol(name, version) {
+      return getProtocolDef(protocolEnv, name, version);
     },
     async setName(name) {
       const id = requireRegistered();

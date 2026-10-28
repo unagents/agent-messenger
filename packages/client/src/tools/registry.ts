@@ -1,3 +1,4 @@
+import { createProtocolState } from "../protocols.js";
 import { VERSION } from "../version.js";
 import { TOOL_DEFS } from "./defs.js";
 import type { ToolContext, ToolDef, ToolDescriptor, ToolRegistry, ToolResult } from "./types.js";
@@ -26,7 +27,11 @@ export function toolDescriptors(defs: readonly ToolDef[] = TOOL_DEFS): ToolDescr
 
 export const TOOLS: ToolDescriptor[] = toolDescriptors();
 
-export function createToolRegistry(ctx: ToolContext, defs: readonly ToolDef[] = TOOL_DEFS): ToolRegistry {
+export function createToolRegistry(
+  input: Omit<ToolContext, "protocols"> & { protocols?: ToolContext["protocols"] },
+  defs: readonly ToolDef[] = TOOL_DEFS
+): ToolRegistry {
+  const ctx: ToolContext = { ...input, protocols: input.protocols ?? createProtocolState() };
   return {
     list: () => toolDescriptors(defs),
     async call(name, args) {

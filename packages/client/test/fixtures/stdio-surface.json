@@ -15,6 +15,14 @@
               "repo"
             ],
             "description": "\"all\" = every host (default). \"host\" = same hostname. \"directory\" = same cwd. \"repo\" = same git repository."
+          },
+          "protocol": {
+            "type": "string",
+            "description": "Only sessions that serve this protocol (set_protocol). Combines with scope."
+          },
+          "version": {
+            "type": "string",
+            "description": "Only with protocol: only sessions that serve exactly this version (a leading v is ignored)."
           }
         }
       },
@@ -43,6 +51,24 @@
               "push"
             ],
             "description": "\"pull\" (default) = the receiver sees only an unread notice (sender shown) and reads the text with check_messages. \"push\" = the text is shown in the receiver's conversation directly."
+          },
+          "meta": {
+            "type": "object",
+            "description": "Optional protocol tag of this message: which protocol (see get_protocol) and version it follows. Both fields are required when meta is given.",
+            "properties": {
+              "protocol": {
+                "type": "string",
+                "description": "Protocol name"
+              },
+              "version": {
+                "type": "string",
+                "description": "Protocol version"
+              }
+            },
+            "required": [
+              "protocol",
+              "version"
+            ]
           }
         },
         "required": [
@@ -123,6 +149,68 @@
       },
       "annotations": {
         "title": "check_messages (v0.7.0)"
+      }
+    },
+    {
+      "name": "set_protocol",
+      "description": "[agent-messenger v0.7.0] Declare that this session serves a protocol: read protocol.json (and PROTOCOL.md) from a protocol repo, register the definition at the broker, and become findable with list_peers(protocol). Declaring a name again replaces its version. Public GitHub / Gitea repos and local paths only.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "repo": {
+            "type": "string",
+            "description": "Protocol repo: https://github.com/<owner>/<repo>, <owner>/<repo>, github:<owner>/<repo>, gitea:<base-url>/<owner>/<repo>, https://<gitea-host>/<owner>/<repo>, or a local path (/abs/path, ./rel/path, file:///abs/path)."
+          },
+          "version": {
+            "type": "string",
+            "description": "Tag to use, e.g. \"1.2.0\" or \"v1.2.0\". Default: the latest release tag (or the default branch head for a repo without tags). Ignored for local paths except as a check."
+          }
+        },
+        "required": [
+          "repo"
+        ]
+      },
+      "annotations": {
+        "title": "set_protocol (v0.7.0)"
+      }
+    },
+    {
+      "name": "unset_protocol",
+      "description": "[agent-messenger v0.7.0] Stop serving a protocol declared with set_protocol. Without a name, all protocols of this session are unset.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Protocol name to unset (default: all)"
+          }
+        }
+      },
+      "annotations": {
+        "title": "unset_protocol (v0.7.0)"
+      }
+    },
+    {
+      "name": "get_protocol",
+      "description": "[agent-messenger v0.7.0] Show the definition of a protocol held by the broker (protocol.json and PROTOCOL.md) so you can speak it. Latest version when version is omitted.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Protocol name (see list_peers)"
+          },
+          "version": {
+            "type": "string",
+            "description": "Version, e.g. \"1.2.0\" or \"v1.2.0\". Default: the latest the broker holds."
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "annotations": {
+        "title": "get_protocol (v0.7.0)"
       }
     }
   ],

@@ -1,6 +1,8 @@
 import type { Message, Peer } from "@unagents/messenger-protocol";
 import type { BrokerClient } from "./broker.js";
 import type { PeerState } from "./peer.js";
+import { describeMeta, recordSeen } from "./protocols.js";
+import type { ProtocolState } from "./protocols.js";
 import type { Logger } from "./resolve.js";
 
 /** A polled message enriched with sender details. */
@@ -8,6 +10,11 @@ export interface InboundMessage extends Message {
   from_hostname: string;
   from_summary: string;
   from_cwd: string;
+  /**
+   * `Protocol: name@ver` (+ `(this server: X, mismatch)` / `(not served here)`) for a message that carries `meta`;
+   * decided when the message was buffered.
+   */
+  protocol_line?: string;
 }
 
 /** The host's way to reach the conversation (stdio: session socket, then channel notification). */
@@ -44,8 +51,10 @@ export function createInbox(opts: {
   peer: PeerState;
   log: Logger;
   notifier?: Notifier;
+  /** Declared protocols: marks messages with `meta` and remembers who spoke which version. */
+  protocols?: ProtocolState;
 }): Inbox {
-  const { broker, peer, log, notifier } = opts;
+  const { broker, peer, log, notifier, protocols } = opts;
   /** messages received but not yet acknowledged */
   const localBuffer: InboundMessage[] = [];
   /** ids already covered by an unread notice (cleared by checkMessages) */
@@ -69,7 +78,15 @@ export function createInbox(opts: {
     if (i !== -1) localBuffer.splice(i, 1);
   }
 
+  /** Mark an entry that carries `meta` (design 6.4) and remember the version its sender spoke. */
+  function markProtocol(entry: InboundMessage) {
+    if (!protocols || !entry.meta) return;
+    recordSeen(protocols, entry.from_id, entry.from_name, entry.meta);
+    entry.protocol_line = describeMeta(protocols, entry.meta);
+  }
+
   function pushBuffer(entry: InboundMessage) {
+    markProtocol(entry);
     localBuffer.push(entry);
     if (localBuffer.length > MAX_BUFFER) localBuffer.splice(0, localBuffer.length - MAX_BUFFER);
   }
@@ -144,7 +161,9 @@ export function createInbox(opts: {
         continue;
       }
       if (!localBuffer.some((b) => b.id === m.id)) {
-        localBuffer.push({ ...m, from_hostname: "", from_summary: "", from_cwd: "" });
+        const entry: InboundMessage = { ...m, from_hostname: "", from_summary: "", from_cwd: "" };
+        markProtocol(entry);
+        localBuffer.push(entry);
       }
     }
     // pings that entered the buffer through the handler path are dropped here

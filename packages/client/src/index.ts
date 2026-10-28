@@ -16,6 +16,7 @@ export type { McpStdioServer, McpStdioServerOptions } from "./mcp.js";
 export { VERSION } from "./version.js";
 export { createMessengerClient } from "./messenger.js";
 export type { MessengerClient, MessengerClientOptions, SendResult } from "./messenger.js";
+export type { PeerProtocolFilter, ProtocolDetail, ProtocolInfo, ProtocolPeer } from "./protocols.js";
 export type { InboundMessage, Notifier, MessageHandler, Inbox } from "./inbox.js";
 export type { PeerState } from "./peer.js";
-export type { Peer, PeerScope } from "@unagents/messenger-protocol";
+export type { MessageMeta, Peer, PeerScope, ProtocolDecl, ProtocolDefinition } from "@unagents/messenger-protocol";

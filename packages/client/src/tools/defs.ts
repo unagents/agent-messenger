@@ -1,5 +1,8 @@
 import type { Peer } from "@unagents/messenger-protocol";
 import type { InboundMessage } from "../inbox.js";
+import { errorMessage, protocolErrorCode } from "../protocol-error.js";
+import { getProtocol, listPeers, parseMeta, planOutgoing, setProtocol, unsetProtocol } from "../protocols.js";
+import { normalizeVersion } from "../semver.js";
 import { VERSION } from "../version.js";
 import type { ToolDef, ToolResult } from "./types.js";
 
@@ -26,6 +29,16 @@ function text(t: string, isError = false): ToolResult {
   return isError ? { content: [{ type: "text", text: t }], isError: true } : { content: [{ type: "text", text: t }] };
 }
 
+/** A protocol error (`<CODE>: ...`) is the tool's answer, not a crash. */
+async function guarded(fn: () => Promise<ToolResult>): Promise<ToolResult> {
+  try {
+    return await fn();
+  } catch (e) {
+    if (protocolErrorCode(e) !== null) return text(errorMessage(e), true);
+    throw e;
+  }
+}
+
 export function formatPeer(p: Peer): string {
   const parts = [`ID: ${p.id}`];
   if (p.name) parts.push(`Name: ${p.name}`);
@@ -33,6 +46,7 @@ export function formatPeer(p: Peer): string {
   if (p.git_root) parts.push(`Repo: ${p.git_root}`);
   if (p.tty) parts.push(`TTY: ${p.tty}`);
   if (p.summary) parts.push(`Summary: ${p.summary}`);
+  for (const d of p.protocols ?? []) parts.push(`Protocol: ${d.name}@${d.version}`);
   parts.push(`Last seen: ${p.last_seen}`);
   return parts.join("\n  ");
 }
@@ -40,10 +54,10 @@ export function formatPeer(p: Peer): string {
 export function formatMessage(m: InboundMessage): string {
   const who = m.from_name ? `${m.from_name} (${m.from_id})` : m.from_id;
   const host = m.from_hostname ? `@${m.from_hostname}` : "";
-  return `From ${who}${host} at ${m.sent_at}:\n${m.text}`;
+  return `From ${who}${host} at ${m.sent_at}:\n${m.protocol_line ? `${m.protocol_line}\n` : ""}${m.text}`;
 }
 
-/** The six tools. Descriptions carry no version prefix; `toolDescriptors()` adds it. */
+/** The nine tools. Descriptions carry no version prefix; `toolDescriptors()` adds it. */
 export const TOOL_DEFS: readonly ToolDef[] = [
   {
     name: "list_peers",
@@ -58,20 +72,32 @@ export const TOOL_DEFS: readonly ToolDef[] = [
           description:
             '"all" = every host (default). "host" = same hostname. "directory" = same cwd. "repo" = same git repository.',
         },
+        protocol: {
+          type: "string",
+          description: "Only sessions that serve this protocol (set_protocol). Combines with scope.",
+        },
+        version: {
+          type: "string",
+          description: "Only with protocol: only sessions that serve exactly this version (a leading v is ignored).",
+        },
       },
     },
     requiresRegistration: false,
-    async handler(args, ctx) {
-      const scope = (typeof args.scope === "string" ? args.scope : "all") as "all" | "host" | "directory" | "repo";
-      const peers = await ctx.broker.post("/list-peers", {
-        scope,
-        cwd: ctx.peer.cwd,
-        git_root: ctx.peer.gitRoot,
-        hostname: ctx.peer.hostname,
-        exclude_id: ctx.peer.id ?? undefined,
+    handler(args, ctx) {
+      return guarded(async () => {
+        const scope = (typeof args.scope === "string" ? args.scope : "all") as "all" | "host" | "directory" | "repo";
+        const protocol = args.protocol === undefined || args.protocol === "" ? undefined : String(args.protocol);
+        const version = protocol === undefined || args.version === undefined || args.version === "" ? undefined : normalizeVersion(String(args.version));
+        const peers = await listPeers(ctx, scope, { protocol, version });
+        if (protocol !== undefined) {
+          if (peers.length === 0) return text(`No server for protocol "${protocol}" (version: ${version ?? "any"}).`);
+          return text(
+            `Found ${peers.length} peer(s) (scope: ${scope}, protocol: ${protocol}, version: ${version ?? "any"}):\n\n${peers.map(formatPeer).join("\n\n")}`
+          );
+        }
+        if (peers.length === 0) return text(`No other sessions found (scope: ${scope}).`);
+        return text(`Found ${peers.length} peer(s) (scope: ${scope}):\n\n${peers.map(formatPeer).join("\n\n")}`);
       });
-      if (peers.length === 0) return text(`No other sessions found (scope: ${scope}).`);
-      return text(`Found ${peers.length} peer(s) (scope: ${scope}):\n\n${peers.map(formatPeer).join("\n\n")}`);
     },
   },
   {
@@ -89,23 +115,39 @@ export const TOOL_DEFS: readonly ToolDef[] = [
           description:
             '"pull" (default) = the receiver sees only an unread notice (sender shown) and reads the text with check_messages. "push" = the text is shown in the receiver\'s conversation directly.',
         },
+        meta: {
+          type: "object",
+          description:
+            "Optional protocol tag of this message: which protocol (see get_protocol) and version it follows. Both fields are required when meta is given.",
+          properties: {
+            protocol: { type: "string", description: "Protocol name" },
+            version: { type: "string", description: "Protocol version" },
+          },
+          required: ["protocol", "version"],
+        },
       },
       required: ["to", "message"],
     },
     requiresRegistration: true,
-    async handler(args, ctx) {
-      const delivery = args.delivery === undefined ? "pull" : String(args.delivery);
-      if (delivery !== "pull" && delivery !== "push") return text(`Invalid delivery: ${delivery} (use "pull" or "push")`, true);
-      const r = await ctx.broker.post("/send-message", {
-        from_id: ctx.peer.id ?? undefined,
-        from_name: ctx.peer.name,
-        to: String(args.to),
-        text: String(args.message),
-        mode: delivery,
+    handler(args, ctx) {
+      return guarded(async () => {
+        const delivery = args.delivery === undefined ? "pull" : String(args.delivery);
+        if (delivery !== "pull" && delivery !== "push") return text(`Invalid delivery: ${delivery} (use "pull" or "push")`, true);
+        const meta = parseMeta(args.meta);
+        const to = String(args.to);
+        const plan = planOutgoing(ctx.protocols, to, String(args.message), meta);
+        const r = await ctx.broker.post("/send-message", {
+          from_id: ctx.peer.id ?? undefined,
+          from_name: ctx.peer.name,
+          to,
+          text: plan.text,
+          mode: delivery,
+          ...(plan.meta === undefined ? {} : { meta: plan.meta }),
+        });
+        if (!r.ok) return text(`Failed to send: ${r.error}`, true);
+        const label = r.to_name ? `${r.to_name} (${r.to_id})` : r.to_id;
+        return text(`Message sent to ${label} (delivery: ${delivery}).${plan.warning ? `\n${plan.warning}` : ""}`);
       });
-      if (!r.ok) return text(`Failed to send: ${r.error}`, true);
-      const label = r.to_name ? `${r.to_name} (${r.to_id})` : r.to_id;
-      return text(`Message sent to ${label} (delivery: ${delivery}).`);
     },
   },
   {
@@ -181,6 +223,87 @@ export const TOOL_DEFS: readonly ToolDef[] = [
       const list = await ctx.inbox.checkMessages();
       if (list.length === 0) return text("No new messages.");
       return text(`${list.length} message(s):\n\n${list.map(formatMessage).join("\n\n---\n\n")}`);
+    },
+  },
+  {
+    name: "set_protocol",
+    description:
+      "Declare that this session serves a protocol: read protocol.json (and PROTOCOL.md) from a protocol repo, register the definition at the broker, and become findable with list_peers(protocol). Declaring a name again replaces its version. Public GitHub / Gitea repos and local paths only.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        repo: {
+          type: "string",
+          description:
+            "Protocol repo: https://github.com/<owner>/<repo>, <owner>/<repo>, github:<owner>/<repo>, gitea:<base-url>/<owner>/<repo>, https://<gitea-host>/<owner>/<repo>, or a local path (/abs/path, ./rel/path, file:///abs/path).",
+        },
+        version: {
+          type: "string",
+          description: 'Tag to use, e.g. "1.2.0" or "v1.2.0". Default: the latest release tag (or the default branch head for a repo without tags). Ignored for local paths except as a check.',
+        },
+      },
+      required: ["repo"],
+    },
+    requiresRegistration: true,
+    handler(args, ctx) {
+      return guarded(async () => {
+        const info = await setProtocol(ctx, String(args.repo), args.version === undefined ? undefined : String(args.version));
+        return text(`Protocol set: ${info.name}@${info.version} (sha256 ${info.hash.slice(0, 8)}…, from ${info.source})`);
+      });
+    },
+  },
+  {
+    name: "unset_protocol",
+    description: "Stop serving a protocol declared with set_protocol. Without a name, all protocols of this session are unset.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Protocol name to unset (default: all)" },
+      },
+    },
+    requiresRegistration: true,
+    handler(args, ctx) {
+      return guarded(async () => {
+        const name = args.name === undefined ? undefined : String(args.name);
+        const removed = await unsetProtocol(ctx, name);
+        if (removed === 0) return text("No protocol set.");
+        return text(name === undefined ? `Protocol unset: (all, ${removed})` : `Protocol unset: ${name}`);
+      });
+    },
+  },
+  {
+    name: "get_protocol",
+    description:
+      "Show the definition of a protocol held by the broker (protocol.json and PROTOCOL.md) so you can speak it. Latest version when version is omitted.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Protocol name (see list_peers)" },
+        version: { type: "string", description: 'Version, e.g. "1.2.0" or "v1.2.0". Default: the latest the broker holds.' },
+      },
+      required: ["name"],
+    },
+    requiresRegistration: false,
+    handler(args, ctx) {
+      return guarded(async () => {
+        const p = await getProtocol(
+          ctx,
+          String(args.name),
+          args.version === undefined ? undefined : String(args.version)
+        );
+        const description = (p.manifest as { description?: unknown }).description;
+        const lines = [
+          `${p.name}@${p.version} (sha256 ${p.hash.slice(0, 8)}…, servers: ${p.servers})`,
+          `Description: ${typeof description === "string" ? description : ""}`,
+          "",
+          "protocol.json:",
+          JSON.stringify(p.manifest, null, 2),
+          "",
+          "PROTOCOL.md:",
+          p.doc === "" ? "(none)" : p.doc,
+        ];
+        return text(lines.join("\n"));
+      });
     },
   },
 ];

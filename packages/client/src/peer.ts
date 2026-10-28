@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { hostname as osHostname } from "node:os";
+import type { ProtocolDecl } from "@unagents/messenger-protocol";
 import type { BrokerClient } from "./broker.js";
 import type { Logger } from "./resolve.js";
 
@@ -46,7 +47,12 @@ export function detectTty(): string | null {
   return null;
 }
 
-export async function registerPeer(broker: Pick<BrokerClient, "post">, peer: PeerState, log: Logger): Promise<void> {
+export async function registerPeer(
+  broker: Pick<BrokerClient, "post">,
+  peer: PeerState,
+  log: Logger,
+  protocols?: ProtocolDecl[]
+): Promise<void> {
   const reg = await broker.post("/register", {
     pid: process.pid,
     hostname: peer.hostname,
@@ -55,6 +61,7 @@ export async function registerPeer(broker: Pick<BrokerClient, "post">, peer: Pee
     tty: peer.tty,
     summary: peer.summary,
     name: peer.name,
+    ...(protocols === undefined ? {} : { protocols }),
   });
   peer.id = reg.id;
   log(`Registered as peer ${peer.id}`);

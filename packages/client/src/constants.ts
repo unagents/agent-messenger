@@ -74,3 +74,13 @@ export const DISCOVERY_KEY = "agent-messenger";
 export const DISCOVERY_PROBE_VALUE = "probe";
 export const DISCOVERY_REPLY_VALUE = "broker";
 export const DISCOVERY_BROADCAST_ADDR = "255.255.255.255";
+
+/**
+ * Protocol registry limits (0.10.0). Copies of the values in `@unagents/messenger-protocol` for the same reason as
+ * above; `test/protocol-constants.test.ts` pins them.
+ */
+export const PROTOCOL_MANIFEST_MAX_BYTES = 64 * 1024;
+export const PROTOCOL_DOC_MAX_BYTES = 64 * 1024;
+export const PROTOCOL_TOTAL_MAX_BYTES = 128 * 1024;
+export const PROTOCOL_META_MAX_LENGTH = 128;
+export const PROTOCOL_NAME_PATTERN = /^[a-z0-9][a-z0-9._-]{0,63}$/;

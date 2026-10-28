@@ -55,7 +55,7 @@ export function createStdioHost(opts: { cfg: ClientConfig; log: Logger; onClose:
      */
     async unread(latest: InboundMessage, count: number): Promise<boolean> {
       const who = senderLabel(latest);
-      const notice = `[agent-messenger] 未読 ${count} 件（from ${who}）。check_messages で受信してください`;
+      const notice = `[agent-messenger] 未読 ${count} 件（from ${who}）。check_messages で受信してください${latest.protocol_line ? `\n${latest.protocol_line}` : ""}`;
       let delivered = false;
       const useSocket = cfg.delivery === "socket" || (cfg.delivery === "auto" && cfg.sessionSocket);
       if (useSocket) {
@@ -114,7 +114,7 @@ export function createStdioHost(opts: { cfg: ClientConfig; log: Logger; onClose:
           await postToSession(
             cfg.sessionSocket,
             cfg.sessionToken,
-            `[agent-messenger] message from ${who}\n${entry.text}\n\n(reply with the agent-messenger send_message tool, to: "${replyTo}")`
+            `[agent-messenger] message from ${who}\n${entry.protocol_line ? `${entry.protocol_line}\n` : ""}${entry.text}\n\n(reply with the agent-messenger send_message tool, to: "${replyTo}")`
           );
           log(`Session socket delivery OK from ${who}: ${entry.text.slice(0, 80)}`);
           return true;
@@ -125,7 +125,7 @@ export function createStdioHost(opts: { cfg: ClientConfig; log: Logger; onClose:
 
       try {
         await mcp.notification("notifications/claude/channel", {
-          content: entry.text,
+          content: entry.protocol_line ? `${entry.protocol_line}\n${entry.text}` : entry.text,
           meta: {
             from_id: entry.from_id,
             from_name: entry.from_name,
