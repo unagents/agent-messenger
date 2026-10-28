@@ -1,6 +1,6 @@
 {
   "name": "@unagents/messenger",
-  "version": "0.10.0",
+  "version": "0.11.0",
   "description": "agent-messenger CLI: fetches the broker / client packages from Gitea Packages, caches them and runs them.",
   "type": "module",
   "license": "MIT",
@@ -33,6 +33,6 @@
     "citty": "^0.1.6"
   },
   "devDependencies": {
-    "@unagents/messenger-protocol": "0.10.0"
+    "@unagents/messenger-protocol": "0.11.0"
   }
 }
