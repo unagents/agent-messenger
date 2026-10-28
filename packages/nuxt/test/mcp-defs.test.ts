@@ -24,17 +24,38 @@ function fakeClient(peerId: string | null = 'x'): { client: MessengerClient, pos
 }
 
 describe('toMcpToolDefinitions', () => {
-  it('maps the six tools in order with title / description from toolDescriptors()', () => {
+  it('maps the nine tools in order with title / description from toolDescriptors()', () => {
     const defs = toMcpToolDefinitions(() => undefined)
     const desc = toolDescriptors()
     expect(defs.map((d) => d.name)).toEqual(TOOL_DEFS.map((d) => d.name))
-    expect(defs).toHaveLength(6)
+    expect(defs).toHaveLength(9)
     defs.forEach((d, i) => {
       expect(d.title).toBe(desc[i].annotations.title)
       expect(d.annotations).toEqual({ title: desc[i].annotations.title })
       expect(d.description).toBe(desc[i].description)
       expect(d.description.startsWith('[agent-messenger v')).toBe(true)
     })
+  })
+
+  it('exposes the nine tools by name, in order', () => {
+    expect(toMcpToolDefinitions(() => undefined).map((d) => d.name)).toEqual([
+      'list_peers',
+      'send_message',
+      'send_ping',
+      'set_name',
+      'set_summary',
+      'check_messages',
+      'set_protocol',
+      'unset_protocol',
+      'get_protocol',
+    ])
+  })
+
+  it('send_message.meta is an object in the input schema', () => {
+    const send = toMcpToolDefinitions(() => undefined).find((d) => d.name === 'send_message')!
+    expect(Object.keys(send.inputSchema)).toEqual(['to', 'message', 'delivery', 'meta'])
+    expect(send.inputSchema.meta.safeParse({ protocol: 'p', version: '1' }).success).toBe(true)
+    expect(send.inputSchema.meta.safeParse({ protocol: 'p' }).success).toBe(false)
   })
 
   it('delegates to registry.call', async () => {

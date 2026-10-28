@@ -2,7 +2,7 @@
 
 Nuxt 4 module for agent-messenger. **One Nuxt server = one peer**: the Nitro server connects to a broker through the
 library API of `@unagents/messenger-client`, shows up in `agent-messenger peers`, can send messages, and receives
-messages through a Nitro hook or by pulling. Optionally it exposes the six messenger tools on `/mcp` through
+messages through a Nitro hook or by pulling. Optionally it exposes the nine messenger tools on `/mcp` through
 `@nuxtjs/mcp-toolkit`.
 
 Not published yet (internal registry only).
@@ -61,9 +61,15 @@ export default defineEventHandler(async () => {
 })
 ```
 
-`send(to, text, delivery?)`, `ping(to, subject?)`, `listPeers(scope?)`, `setName(name)`, `setSummary(summary)`,
-`checkMessages()`. Each call waits up to 10 s for the first connect, then throws `Not connected to broker yet`.
+`send(to, text, delivery?, meta?)`, `ping(to, subject?)`, `listPeers(scope?, filter?)`, `setName(name)`,
+`setSummary(summary)`, `checkMessages()`. Each call waits up to 10 s for the first connect, then throws `Not connected to broker yet`.
 Errors from the library keep their text (`Invalid delivery: ...`, `Failed to send: ...`).
+
+Protocols (needs a broker 0.10.0 or newer): `setProtocol(repo, version?)` declares that this server follows the protocol in a
+public GitHub / Gitea repo or a local path, `unsetProtocol(name?)` withdraws it (all when no name), and
+`getProtocol(name, version?)` reads a stored definition. `listPeers(scope, { protocol, version })` returns only servers
+that declare the protocol, and `send(to, text, delivery, { protocol, version })` tags a message with the protocol it
+follows. The same three tools are on `/mcp` (see below).
 
 ## Receiving: the `messenger:message` hook
 
@@ -107,7 +113,7 @@ sends ambiguous.
 In `nuxi dev`, a server file change reloads the Nitro worker. The old worker unregisters on its `close` hook and the new
 one registers; `peers` shows the server once. A hard kill leaves the old peer until the broker's stale cleanup removes it.
 
-## Toolkit: the six tools on `/mcp`
+## Toolkit: the nine tools on `/mcp`
 
 Optional. Install `@nuxtjs/mcp-toolkit` (and `zod` v4, which the toolkit needs) and list it in `modules`:
 
@@ -117,7 +123,7 @@ export default defineNuxtConfig({
 })
 ```
 
-`/mcp` then lists `set_name`, `set_summary`, `list_peers`, `send_message`, `send_ping`, `check_messages`, with the same
+`/mcp` then lists `set_name`, `set_summary`, `list_peers`, `send_message`, `send_ping`, `check_messages`, `set_protocol`, `unset_protocol`, `get_protocol`, with the same
 texts and error messages as the stdio client (for example `Invalid delivery: bogus (use "pull" or "push")`). The tools
 are added per request through the toolkit's `mcp:config:resolved` hook; a tool with the same name that you define yourself
 is kept and the module's is skipped. They also appear on named handlers (`/mcp/<name>`). Set `mcp.instructions` yourself if

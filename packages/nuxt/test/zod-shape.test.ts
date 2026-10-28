@@ -11,8 +11,8 @@ const def = (name: string) => {
 }
 
 describe('jsonSchemaToZodShape', () => {
-  it('converts all six tool definitions', () => {
-    expect(TOOL_DEFS).toHaveLength(6)
+  it('converts all nine tool definitions', () => {
+    expect(TOOL_DEFS).toHaveLength(9)
     for (const d of TOOL_DEFS) {
       const shape = jsonSchemaToZodShape(d.inputSchema)
       expect(Object.keys(shape)).toEqual(Object.keys(d.inputSchema.properties))
@@ -24,6 +24,43 @@ describe('jsonSchemaToZodShape', () => {
     expect(s.safeParse({ to: 'a', message: 'b' }).success).toBe(true)
     expect(s.safeParse({ to: 'a' }).success).toBe(false)
     expect(s.safeParse({ message: 'b' }).success).toBe(false)
+  })
+
+  it('send_message.meta: object with protocol / version, optional as a whole, both required inside', () => {
+    const s = z.object(jsonSchemaToZodShape(def('send_message').inputSchema))
+    expect(s.safeParse({ to: 'a', message: 'b' }).success).toBe(true)
+    expect(s.safeParse({ to: 'a', message: 'b', meta: { protocol: 'p', version: '1.0.0' } }).success).toBe(true)
+    expect(s.safeParse({ to: 'a', message: 'b', meta: { protocol: 'p' } }).success).toBe(false)
+    expect(s.safeParse({ to: 'a', message: 'b', meta: { version: '1.0.0' } }).success).toBe(false)
+    expect(s.safeParse({ to: 'a', message: 'b', meta: 'p@1' }).success).toBe(false)
+  })
+
+  it('send_message.meta keeps type / description / required through toJSONSchema', () => {
+    const d = def('send_message').inputSchema.properties.meta
+    const json = z.toJSONSchema(z.object(jsonSchemaToZodShape(def('send_message').inputSchema))) as {
+      properties: Record<string, { type?: string, description?: string, properties?: Record<string, { type?: string, description?: string }>, required?: string[] }>
+      required?: string[]
+    }
+    const meta = json.properties.meta
+    expect(meta.type).toBe('object')
+    expect(meta.description).toBe(d.description)
+    expect(Object.keys(meta.properties ?? {})).toEqual(['protocol', 'version'])
+    expect(meta.properties?.protocol.description).toBe('Protocol name')
+    expect([...(meta.required ?? [])].sort()).toEqual(['protocol', 'version'])
+    expect(json.required).not.toContain('meta')
+  })
+
+  it('an object member is optional unless listed in the nested required', () => {
+    const schema = { type: 'object', properties: { o: { type: 'object', properties: { a: { type: 'string' }, b: { type: 'string' } }, required: ['a'] } }, required: ['o'] } as unknown as JsonObjectSchema
+    const s = z.object(jsonSchemaToZodShape(schema))
+    expect(s.safeParse({ o: { a: 'x' } }).success).toBe(true)
+    expect(s.safeParse({ o: { b: 'x' } }).success).toBe(false)
+    expect(s.safeParse({}).success).toBe(false)
+  })
+
+  it('throws on a non-string member of an object property', () => {
+    const bad = { type: 'object', properties: { o: { type: 'object', properties: { n: { type: 'number' } } } } } as unknown as JsonObjectSchema
+    expect(() => jsonSchemaToZodShape(bad)).toThrow('Unsupported JSON Schema type for o.n: number')
   })
 
   it('enum maps to a plain string (a bad delivery passes zod and reaches the handler)', () => {

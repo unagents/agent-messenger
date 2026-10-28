@@ -1,13 +1,25 @@
-import type { InboundMessage, Peer, PeerScope, SendResult } from '@unagents/messenger-client'
+import type {
+  InboundMessage,
+  MessageMeta,
+  PeerProtocolFilter,
+  PeerScope,
+  ProtocolDetail,
+  ProtocolInfo,
+  ProtocolPeer,
+  SendResult,
+} from '@unagents/messenger-client'
 import { getStore, waitReady, READY_TIMEOUT_MS } from '../lib/lifecycle'
 
 export interface MessengerApi {
-  send(to: string, text: string, delivery?: 'pull' | 'push'): Promise<SendResult>
+  send(to: string, text: string, delivery?: 'pull' | 'push', meta?: MessageMeta): Promise<SendResult>
   ping(to: string, subject?: string): Promise<SendResult>
-  listPeers(scope?: PeerScope): Promise<Peer[]>
+  listPeers(scope?: PeerScope, filter?: PeerProtocolFilter): Promise<ProtocolPeer[]>
   setName(name: string): Promise<void>
   setSummary(summary: string): Promise<void>
   checkMessages(): Promise<InboundMessage[]>
+  setProtocol(repo: string, version?: string): Promise<ProtocolInfo>
+  unsetProtocol(name?: string): Promise<void>
+  getProtocol(name: string, version?: string): Promise<ProtocolDetail>
 }
 
 /**
@@ -21,17 +33,17 @@ export function useMessenger(): MessengerApi {
   const c = entry.client
   const ready = async (): Promise<void> => waitReady(entry, READY_TIMEOUT_MS)
   return {
-    async send(to, text, delivery) {
+    async send(to, text, delivery, meta) {
       await ready()
-      return c.send(to, text, delivery)
+      return c.send(to, text, delivery, meta)
     },
     async ping(to, subject) {
       await ready()
       return c.ping(to, subject)
     },
-    async listPeers(scope) {
+    async listPeers(scope, filter) {
       await ready()
-      return c.listPeers(scope)
+      return c.listPeers(scope, filter)
     },
     async setName(name) {
       await ready()
@@ -44,6 +56,18 @@ export function useMessenger(): MessengerApi {
     async checkMessages() {
       await ready()
       return c.checkMessages()
+    },
+    async setProtocol(repo, version) {
+      await ready()
+      return c.setProtocol(repo, version)
+    },
+    async unsetProtocol(name) {
+      await ready()
+      return c.unsetProtocol(name)
+    },
+    async getProtocol(name, version) {
+      await ready()
+      return c.getProtocol(name, version)
     },
   }
 }

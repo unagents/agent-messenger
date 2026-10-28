@@ -46,15 +46,19 @@ afterEach(async () => {
 })
 
 describe('toolkit registration path', () => {
-  it('tools/list shows the six tools, delivery without enum', async () => {
+  it('tools/list shows the nine tools, delivery without enum', async () => {
     const c = await connect()
     const { tools } = await c.listTools()
-    expect(tools.map((t) => t.name).sort()).toEqual(['check_messages', 'list_peers', 'send_message', 'send_ping', 'set_name', 'set_summary'])
+    expect(tools.map((t) => t.name).sort()).toEqual(['check_messages', 'get_protocol', 'list_peers', 'send_message', 'send_ping', 'set_name', 'set_protocol', 'set_summary', 'unset_protocol'])
     const send = tools.find((t) => t.name === 'send_message')!
     const props = send.inputSchema.properties as Record<string, { type?: string, enum?: unknown }>
     expect(props.delivery.type).toBe('string')
     expect(props.delivery.enum).toBeUndefined()
     expect(send.title).toMatch(/^send_message \(v/)
+    const meta = props.meta as unknown as { type?: string, properties?: Record<string, unknown>, required?: string[] }
+    expect(meta.type).toBe('object')
+    expect(Object.keys(meta.properties ?? {})).toEqual(['protocol', 'version'])
+    expect(send.inputSchema.required).not.toContain('meta')
     const check = tools.find((t) => t.name === 'check_messages')!
     expect(check.inputSchema.type).toBe('object')
   })
@@ -72,6 +76,21 @@ describe('toolkit registration path', () => {
     const r = await c.callTool({ name: 'send_message', arguments: { to: 'y', message: 'hi', delivery: 'push' } })
     expect(r.isError).toBeFalsy()
     expect(posts.map((p) => p.path)).toEqual(['/send-message'])
+  })
+
+  it('send_message with meta reaches the broker with the meta (object argument passes zod)', async () => {
+    const c = await connect()
+    const r = await c.callTool({ name: 'send_message', arguments: { to: 'y', message: 'hi', meta: { protocol: 'p', version: '1.0.0' } } })
+    expect(r.isError).toBeFalsy()
+    expect(posts.map((p) => p.path)).toEqual(['/send-message'])
+    expect((posts[0].body as { meta?: unknown }).meta).toEqual({ protocol: 'p', version: '1.0.0' })
+  })
+
+  it('send_message with a half meta is rejected before the broker', async () => {
+    const c = await connect()
+    const r = await c.callTool({ name: 'send_message', arguments: { to: 'y', message: 'hi', meta: { protocol: 'p' } } })
+    expect(r.isError).toBe(true)
+    expect(posts).toHaveLength(0)
   })
 
   it('check_messages (empty shape) is callable', async () => {
