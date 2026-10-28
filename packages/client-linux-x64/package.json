@@ -1,6 +1,6 @@
 {
   "name": "@unagents/messenger-client-linux-x64",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "description": "agent-messenger client, native linux-x64 build (PerryTS). Selected by @unagents/messenger over the node client when installable.",
   "license": "MIT",
   "repository": {

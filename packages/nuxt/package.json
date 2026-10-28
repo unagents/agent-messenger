@@ -1,6 +1,6 @@
 {
   "name": "@unagents/messenger-nuxt",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "description": "Nuxt module for agent-messenger: one Nuxt server = one peer (library API of @unagents/messenger-client).",
   "type": "module",
   "license": "MIT",
@@ -29,7 +29,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@unagents/messenger-client": "0.9.0",
+    "@unagents/messenger-client": "0.10.0",
     "@nuxt/kit": "^4.5.2"
   },
   "peerDependencies": {
