@@ -1,4 +1,3 @@
-import { readFileSync } from "node:fs";
 import { request } from "node:http";
 import {
   DEFAULT_HTTP_PORT,
@@ -14,7 +13,7 @@ export interface MeshOptions {
   id: string;
   token: string;
   handlers: BrokerHandlers;
-  /** Other permanent brokers, re-evaluated every round (`brokers` of the client config file, or a fixed list). */
+  /** Other permanent brokers, re-evaluated every round (the discovery-fed `MeshPeerTable`, or a fixed test list). */
   urls: () => string[];
   intervalMs: number;
   /** Per-request timeout; one dead broker must not stall a round. */
@@ -53,6 +52,17 @@ export class Mesh {
     this.stopped = true;
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
+  }
+
+  /** True while the last sync with `url` succeeded. */
+  linkUp(url: string): boolean {
+    return this.links.get(url) === "up";
+  }
+
+  /** Forget everything learned about `url` (its broker left or moved). */
+  forget(url: string): void {
+    this.links.delete(url);
+    this.origins.delete(url);
   }
 
   /** Sync soon (coalesced). */
@@ -122,26 +132,6 @@ export class Mesh {
     // first answer from this broker: messages queued for its peers can go now
     if (learned && handlers.meshOutbox(res.id).length) this.again = true;
     this.setLink(url, "up");
-  }
-}
-
-/** `brokers` (or legacy `broker`) of the client config file as `http://host:port` URLs; `[]` when absent or unreadable. */
-export function readMeshBrokers(configFile: string): string[] {
-  try {
-    const parsed = JSON.parse(readFileSync(configFile, "utf8")) as { brokers?: unknown; broker?: unknown };
-    const list: unknown[] = Array.isArray(parsed.brokers) ? parsed.brokers : parsed.broker ? [parsed.broker] : [];
-    const out: string[] = [];
-    for (const s of list) {
-      if (typeof s !== "string" || !s.trim()) continue;
-      try {
-        out.push(normalizeBrokerUrl(s));
-      } catch {
-        log.warn(`mesh: ignoring unparsable broker entry "${s}"`);
-      }
-    }
-    return out;
-  } catch {
-    return [];
   }
 }
 

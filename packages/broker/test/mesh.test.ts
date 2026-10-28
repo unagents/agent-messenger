@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "vitest";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { request } from "node:http";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
@@ -64,6 +64,8 @@ function httpPost(url: string, headers: Record<string, string>, body: string): P
 
 interface Node {
   id: string;
+  /** fixed mesh members handed to this broker (discovery is off in these tests) */
+  members: string[];
   port: number;
   url: string;
   stateFile: string;
@@ -76,13 +78,13 @@ interface Node {
   start: () => Promise<void>;
 }
 
-/** A mesh (or plain, `mesh:false`) broker on a fixed loopback port; `configFile` lists the members. */
-async function node(id: string, configFile: string, opts: { mesh?: boolean } = {}): Promise<Node> {
-  const port = await freePort();
+/** A mesh (or plain, `mesh:false`) broker on a fixed loopback port; `members` is the fixed list of mesh URLs (`meshBrokers`, test-only). */
+async function node(id: string, port: number, members: string[], opts: { mesh?: boolean } = {}): Promise<Node> {
   const stateFile = join(tmp(), "broker.json");
   const url = `http://127.0.0.1:${port}`;
   const n: Node = {
     id,
+    members,
     port,
     url,
     stateFile,
@@ -114,7 +116,7 @@ async function node(id: string, configFile: string, opts: { mesh?: boolean } = {
         discovery: false,
         mesh: opts.mesh ?? true,
         meshIntervalMs: INTERVAL,
-        configFile,
+        meshBrokers: members,
       });
       brokers.push(n.handle);
     },
@@ -123,8 +125,16 @@ async function node(id: string, configFile: string, opts: { mesh?: boolean } = {
   return n;
 }
 
-function writeMembers(file: string, nodes: Node[]) {
-  writeFileSync(file, JSON.stringify({ brokers: nodes.map((n) => n.url) }));
+/** Brokers that all list each other (and themselves) as fixed members. A spec may be `[id, {mesh:false}]`. */
+async function meshNodes(specs: (string | [string, { mesh?: boolean }])[]): Promise<Node[]> {
+  const ports = await Promise.all(specs.map(() => freePort()));
+  const members = ports.map((p) => `http://127.0.0.1:${p}`);
+  const out: Node[] = [];
+  for (const [i, s] of specs.entries()) {
+    const [id, o] = typeof s === "string" ? [s, {}] : s;
+    out.push(await node(id, ports[i]!, members, o));
+  }
+  return out;
 }
 
 afterEach(async () => {
@@ -134,10 +144,7 @@ afterEach(async () => {
 
 describe("mesh: two permanent brokers on one host", () => {
   test("peers show up on both brokers; origin never leaks to clients", async () => {
-    const cfg = join(tmp(), "config.json");
-    const a = await node("broker-a", cfg);
-    const b = await node("broker-b", cfg);
-    writeMembers(cfg, [a, b]);
+    const [a, b] = (await meshNodes(["broker-a", "broker-b"])) as [Node, Node];
 
     const pa = await a.join("alice", 101);
     const pb = await b.join("bob", 202);
@@ -161,10 +168,7 @@ describe("mesh: two permanent brokers on one host", () => {
   });
 
   test("messages cross in both directions and are delivered once", async () => {
-    const cfg = join(tmp(), "config.json");
-    const a = await node("broker-a", cfg);
-    const b = await node("broker-b", cfg);
-    writeMembers(cfg, [a, b]);
+    const [a, b] = (await meshNodes(["broker-a", "broker-b"])) as [Node, Node];
     const pa = await a.join("alice", 101);
     const pb = await b.join("bob", 202);
     await until(async () => (await a.peers(pa)).length === 1, "bob visible on A");
@@ -195,10 +199,7 @@ describe("mesh: two permanent brokers on one host", () => {
   });
 
   test("one side stopped: the other keeps working; after it returns everything resyncs", async () => {
-    const cfg = join(tmp(), "config.json");
-    const a = await node("broker-a", cfg);
-    const b = await node("broker-b", cfg);
-    writeMembers(cfg, [a, b]);
+    const [a, b] = (await meshNodes(["broker-a", "broker-b"])) as [Node, Node];
     const pa = await a.join("alice", 101);
     const pa2 = await a.join("carol", 103);
     const pb = await b.join("bob", 202);
@@ -238,10 +239,7 @@ describe("mesh: two permanent brokers on one host", () => {
   });
 
   test("B can also queue for A while A is down (symmetric)", async () => {
-    const cfg = join(tmp(), "config.json");
-    const a = await node("broker-a", cfg);
-    const b = await node("broker-b", cfg);
-    writeMembers(cfg, [a, b]);
+    const [a, b] = (await meshNodes(["broker-a", "broker-b"])) as [Node, Node];
     const pa = await a.join("alice", 101);
     const pb = await b.join("bob", 202);
     await until(async () => (await b.peers(pb)).length === 1, "alice visible on B");
@@ -257,10 +255,7 @@ describe("mesh: two permanent brokers on one host", () => {
   });
 
   test("replicas expire when the origin stays silent past the ttl", async () => {
-    const cfg = join(tmp(), "config.json");
-    const a = await node("broker-a", cfg);
-    const b = await node("broker-b", cfg);
-    writeMembers(cfg, [a, b]);
+    const [a, b] = (await meshNodes(["broker-a", "broker-b"])) as [Node, Node];
     const pa = await a.join("alice", 101);
     await b.join("bob", 202);
     await until(async () => (await a.peers(pa)).length === 1, "bob visible on A");
@@ -277,7 +272,7 @@ describe("mesh: two permanent brokers on one host", () => {
       mesh: true,
       meshIntervalMs: INTERVAL,
       meshPeerTtlMs: 150,
-      configFile: cfg,
+      meshBrokers: a.members,
     });
     brokers.push(a.handle);
     await until(async () => (await a.peers()).length === 1, "alice (direct) still there");
@@ -287,10 +282,7 @@ describe("mesh: two permanent brokers on one host", () => {
 
 describe("mesh: who takes part", () => {
   test("a broker without mesh (fallback / 0.6.x style) answers 404 and never receives peers", async () => {
-    const cfg = join(tmp(), "config.json");
-    const a = await node("broker-a", cfg);
-    const plain = await node("fallback", cfg, { mesh: false });
-    writeMembers(cfg, [a, plain]);
+    const [a, plain] = (await meshNodes(["broker-a", ["fallback", { mesh: false }]])) as [Node, Node];
     const pa = await a.join("alice", 101);
     await plain.join("local-only", 303);
 
@@ -303,17 +295,14 @@ describe("mesh: who takes part", () => {
   });
 
   test("a mesh broker that lists itself skips itself", async () => {
-    const cfg = join(tmp(), "config.json");
-    const a = await node("broker-a", cfg);
-    writeMembers(cfg, [a]);
+    const [a] = (await meshNodes(["broker-a"])) as [Node];
     const pa = await a.join("alice", 101);
     await new Promise((res) => setTimeout(res, INTERVAL * 4));
     expect((await a.peers()).map((p) => p.id)).toEqual([pa]);
   });
 
   test("/mesh/sync requires the token", async () => {
-    const cfg = join(tmp(), "config.json");
-    const a = await node("broker-a", cfg);
+    const [a] = (await meshNodes(["broker-a"])) as [Node];
     const r = await a.post("/mesh/sync", { from: "x", peers: [], messages: [] }, null);
     expect(r.status).toBe(401);
     const bad = await a.post("/mesh/sync", { from: "x", peers: [], messages: [] }, "wrong");
@@ -321,8 +310,7 @@ describe("mesh: who takes part", () => {
   });
 
   test("a forwarded message that arrives twice is stored once", async () => {
-    const cfg = join(tmp(), "config.json");
-    const a = await node("broker-a", cfg, { mesh: true });
+    const [a] = (await meshNodes(["broker-a"])) as [Node];
     const pa = await a.join("alice", 101);
     const m: Message = { id: 7, from_id: "x1", from_name: "x", to_id: pa, text: "once", mode: "pull", sent_at: new Date().toISOString(), delivered: 0, acknowledged: 0 };
     const one = await a.post("/mesh/sync", { from: "other", peers: [], messages: [m] });
@@ -331,5 +319,57 @@ describe("mesh: who takes part", () => {
     expect(two.json.accepted).toEqual([7]);
     const polled = await a.post("/poll-messages", { id: pa });
     expect(polled.json.messages.map((x: Message) => x.text)).toEqual(["once"]);
+  });
+});
+
+describe("mesh: discovery (announce) instead of a member list", () => {
+  /** Mac sandbox cannot bind UDP: this block runs on a host that can. Two brokers see each other only through `discoveryTargets`. */
+  async function discovered(id: string, port: number, dport: number, targets: string[], token = TOKEN): Promise<{ post: Node["post"]; handle: BrokerHandle; port: number }> {
+    const handle = await startBroker({
+      port,
+      bind: "127.0.0.1",
+      token,
+      id,
+      stateFile: join(tmp(), "broker.json"),
+      discovery: true,
+      discoveryPort: dport,
+      discoveryAddr: "127.0.0.1",
+      discoveryTargets: targets,
+      mesh: true,
+      meshIntervalMs: INTERVAL,
+      meshAnnounceMs: 150,
+    });
+    brokers.push(handle);
+    const url = `http://127.0.0.1:${port}`;
+    return {
+      handle,
+      port,
+      post: (path, body = {}, tok: string | null = token) => {
+        const headers: Record<string, string> = { "Content-Type": "application/json" };
+        if (tok) headers.Authorization = `Bearer ${tok}`;
+        return httpPost(`${url}${path}`, headers, JSON.stringify(body));
+      },
+    };
+  }
+
+  test("two brokers with the same token find each other; a different token is never a member", async () => {
+    const [pa, pb, pc] = await Promise.all([freePort(), freePort(), freePort()]);
+    const [da, db, dc] = await Promise.all([freePort(), freePort(), freePort()]);
+    const targets = [da, db, dc].map((p) => `127.0.0.1:${p}`);
+    const a = await discovered("broker-a", pa, da, targets);
+    const b = await discovered("broker-b", pb, db, targets);
+    const c = await discovered("broker-c", pc, dc, targets, "other-token");
+
+    const alice = (await a.post("/register", { pid: 101, hostname: "a", cwd: "/a", name: "alice" })).json.id as string;
+    const bob = (await b.post("/register", { pid: 202, hostname: "b", cwd: "/b", name: "bob" })).json.id as string;
+    await until(async () => (await a.post("/list-peers", { scope: "all", exclude_id: alice })).json.length === 1, "bob visible on A through discovery");
+    await until(async () => (await b.post("/list-peers", { scope: "all", exclude_id: bob })).json.length === 1, "alice visible on B");
+
+    // C has another token: it neither joins A / B nor receives their peers
+    await new Promise((r) => setTimeout(r, 600));
+    expect((await c.post("/list-peers", { scope: "all" })).json).toEqual([]);
+    expect((await a.post("/list-peers", { scope: "all" })).json.map((p: Peer) => p.name).sort()).toEqual(["alice", "bob"]);
+    const health = await fetch(`http://127.0.0.1:${pa}/health`).then((r) => r.json() as Promise<any>);
+    expect(health).toMatchObject({ status: "ok", mesh: true });
   });
 });

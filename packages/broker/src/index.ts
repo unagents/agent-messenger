@@ -1,13 +1,14 @@
 import type { Socket } from "node:dgram";
 import { listen, type Listener } from "listhen";
 import { toNodeListener } from "h3";
-import { DISCOVERY_KEY, DISCOVERY_REPLY_VALUE, type DiscoveryReply } from "@unagents/messenger-protocol";
+import { DISCOVERY_KEY, DISCOVERY_REPLY_VALUE, meshMac, type DiscoveryReply } from "@unagents/messenger-protocol";
 import { resolveConfig, type BrokerOptions } from "./config.js";
 import { BrokerState } from "./state.js";
 import { BrokerHandlers } from "./handlers.js";
-import { Mesh, normalizeBrokerUrl, readMeshBrokers } from "./mesh.js";
+import { Mesh, normalizeBrokerUrl } from "./mesh.js";
+import { MeshPeerTable, meshExpireMs } from "./mesh-peers.js";
 import { createBrokerApp } from "./http.js";
-import { localAddresses, probeBrokers, startDiscoveryResponder } from "./discovery.js";
+import { buildAnnounce, localAddresses, newNonce, probeBrokers, sendAnnounce, sendTargets, startDiscoveryResponder } from "./discovery.js";
 import { relayUndelivered } from "./relay.js";
 import { log } from "./log.js";
 import pkg from "../package.json" with { type: "json" };
@@ -83,22 +84,68 @@ export async function startBroker(options: BrokerOptions = {}): Promise<BrokerHa
   }
   port = listener.address.port;
 
-  const reply = (): DiscoveryReply => ({ [DISCOVERY_KEY]: DISCOVERY_REPLY_VALUE, id: cfg.id, port, version: VERSION, ...(cfg.fallback ? { fallback: true as const } : {}) });
+  const reply = (nonce?: string): DiscoveryReply => ({
+    [DISCOVERY_KEY]: DISCOVERY_REPLY_VALUE,
+    id: cfg.id,
+    port,
+    version: VERSION,
+    ...(cfg.fallback ? { fallback: true as const } : {}),
+    ...(cfg.mesh ? { mesh: true as const, ...(nonce ? { mac: meshMac(cfg.token, nonce, cfg.id, port) } : {}) } : {}),
+  });
+
+  // Mesh members are found by discovery (token-checked). `meshBrokers` is a fixed, test-only list that replaces it.
+  const fixed = cfg.meshBrokers.map(normalizeBrokerUrl);
+  const peerTable = cfg.mesh
+    ? new MeshPeerTable({
+        selfId: cfg.id,
+        token: cfg.token,
+        expireMs: meshExpireMs(cfg.meshAnnounceMs),
+        onDrop: (url) => mesh?.forget(url),
+        onJoin: () => mesh?.kick(),
+      })
+    : null;
+
   let disco: Socket | null = null;
   if (cfg.discovery) {
-    disco = await startDiscoveryResponder({ port: cfg.discoveryPort, addr: cfg.discoveryAddr, reply });
+    disco = await startDiscoveryResponder({
+      port: cfg.discoveryPort,
+      addr: cfg.discoveryAddr,
+      reply,
+      ...(peerTable ? { onAnnounce: (m, rinfo) => void peerTable.handleAnnounce(m, rinfo.address) } : {}),
+    });
   }
 
+  let announceTimer: NodeJS.Timeout | null = null;
   if (cfg.mesh) {
-    const fixed = cfg.meshBrokers.map(normalizeBrokerUrl);
     mesh = new Mesh({
       id: cfg.id,
       token: cfg.token,
       handlers,
-      urls: () => (fixed.length ? fixed : readMeshBrokers(cfg.configFile)),
+      urls: () => (fixed.length ? fixed : peerTable!.urls()),
       intervalMs: cfg.meshIntervalMs,
     });
     mesh.start();
+    if (!cfg.discovery && !fixed.length) {
+      log.warn("mesh: AGENT_MESSENGER_MESH=on but AGENT_MESSENGER_DISCOVERY=off; no other mesh broker can be found");
+    }
+    if (cfg.discovery && disco && !fixed.length) {
+      const sock = disco;
+      const targets = sendTargets({ port: cfg.discoveryPort, addr: cfg.discoveryAddr, targets: cfg.discoveryTargets });
+      const announceAndSweep = () => {
+        sendAnnounce(sock, buildAnnounce({ token: cfg.token, id: cfg.id, port, version: VERSION, ts: Date.now() }), targets);
+        peerTable!.sweep((url) => mesh?.linkUp(url) ?? false);
+      };
+      announceAndSweep();
+      announceTimer = setInterval(announceAndSweep, cfg.meshAnnounceMs);
+      announceTimer.unref();
+      // one probe at start finds brokers that announced before we came up
+      const nonce = newNonce();
+      void probeBrokers({ port: cfg.discoveryPort, addr: cfg.discoveryAddr, targets: cfg.discoveryTargets, nonce, timeoutMs: 1000 }).then((found) => {
+        for (const b of found) {
+          peerTable!.handleReply({ [DISCOVERY_KEY]: DISCOVERY_REPLY_VALUE, id: b.id, port: b.port, version: b.version, mesh: b.mesh, mac: b.mac }, b.host, nonce);
+        }
+      });
+    }
   }
 
   log.info(`v${VERSION} id=${cfg.id} listening on ${cfg.bind}:${port} (state: ${cfg.stateFile})`);
@@ -112,6 +159,7 @@ export async function startBroker(options: BrokerOptions = {}): Promise<BrokerHa
     closed = true;
     clearInterval(cleaner);
     if (fallbackTimer) clearInterval(fallbackTimer);
+    if (announceTimer) clearInterval(announceTimer);
     mesh?.stop();
     if (disco) {
       await new Promise<void>((resolve) => disco!.close(() => resolve()));
@@ -129,7 +177,7 @@ export async function startBroker(options: BrokerOptions = {}): Promise<BrokerHa
       if (busy || closed) return;
       busy = true;
       try {
-        const found = await probeBrokers({ port: cfg.discoveryPort, addr: cfg.discoveryAddr, timeoutMs: 1000 });
+        const found = await probeBrokers({ port: cfg.discoveryPort, addr: cfg.discoveryAddr, targets: cfg.discoveryTargets, timeoutMs: 1000 });
         // not ourselves (our own responder answers too) and not another fallback (two fallbacks must not relay into each other)
         const other = found.find((b) => !b.fallback && !(b.port === port && mine.has(b.host)));
         if (!other || closed) return;

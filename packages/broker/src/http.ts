@@ -47,6 +47,7 @@ export function createBrokerApp(opts: HttpAppOptions): App {
     port: opts.port(),
     peers: opts.handlers.alivePeerCount(),
     ...(opts.fallback ? { fallback: true as const } : {}),
+    ...(opts.mesh ? { mesh: true as const } : {}),
   })));
 
   const post = (route: string, run: (body: unknown) => unknown) =>
