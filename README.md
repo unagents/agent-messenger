@@ -74,11 +74,25 @@ claude --dangerously-load-development-channels server:agent-messenger
 
 | ツール | 内容 |
 |---|---|
-| `list_peers` | 接続中セッション一覧。scope: `all`(既定) / `host` / `directory` / `repo` |
-| `send_message` | `to`（名前または id）へ送信。ホストをまたいで届く |
+| `list_peers` | 接続中セッション一覧。`scope`: `all`(既定) / `host` / `directory` / `repo`。`protocol` / `version` を渡すと、その protocol（と version）を宣言中のセッションだけ返す（`scope` と併用可） |
+| `send_message` | `to`（名前または id）へ送信。ホストをまたいで届く。`delivery`: `pull`(既定) / `push`。`meta`: `{protocol, version}` で従う protocol を付ける（両方必須） |
+| `send_ping` | `to` に生存通知を送る。`subject`（任意、1 行）に作業中のタスク名などを付けられる。受け側は 1 行の ping 通知を見るだけで、読む・返信する必要は無い |
 | `set_name` | このセッションに名前を付ける（他 peer が名前で宛先指定できる） |
 | `set_summary` | 作業内容の 1〜2 文（list_peers に表示） |
 | `check_messages` | 未読メッセージの取得と既読化。channel push 無しの環境では必須 |
+| `set_protocol` | `repo`（と任意の `version`）の protocol を、このセッションが話すものとして宣言する。定義を取得して broker に登録する |
+| `unset_protocol` | 宣言を解除する。`name` 省略で自分の全宣言 |
+| `get_protocol` | broker が持つ protocol の定義（`protocol.json` と `PROTOCOL.md`）を表示する。`version` 省略で最新 |
+
+## protocol（0.10.0）
+
+セッションが「どんな種類のメッセージを、どんな形で話すか」を宣言し、相手を protocol で探せるようにする。
+
+- protocol repo は、ルートに `protocol.json`（必須。`name` / `version` / `description` / `messages`）と `PROTOCOL.md`（任意。運用説明）を置いた Git repo、またはそのローカルディレクトリ。`set_protocol` が受け付けるのは **public** の GitHub / Gitea repo とローカル path のみ（private repo は `REPO_UNREACHABLE`）。
+- `set_protocol(repo, version?)` は tag（`1.2.0` / `v1.2.0`）の `protocol.json` と `PROTOCOL.md` を取得し、hash を付けて broker に登録する。1 セッションに複数の protocol を宣言でき、同じ name は版を置き換える。
+- 同じ `name@version` で中身が違う定義は `PROTOCOL_CONFLICT` で拒否される。宣言者がいなくなった定義は broker から消える。定義は `broker.json` に保存され、broker の再起動後も heartbeat で復旧する。
+- `list_peers(protocol, version?)` で話せる相手を探し、`get_protocol(name)` で定義を読み、`send_message(meta: {protocol, version})` で従う protocol を付けて送る。受け側の表示に `Protocol: name@version` が付き、自分の宣言と版が違えば mismatch が示され、返信の結果に警告が付く。
+- 0.9 の broker では `set_protocol` / `list_peers(protocol)` が `BROKER_UNSUPPORTED` になる（0.10.0 以上が必要）。meta 無しの送受信は従来どおり。
 
 ## ツール core と Nuxt module（0.8.0）
 
@@ -100,7 +114,7 @@ export default defineNuxtConfig({
 ```
 
 - `messenger:message` に listener があればそこへ配信（全 listener 成功で ack、失敗は再配信）。無ければ消費せず `useMessenger().checkMessages()` で取得
-- `@nuxtjs/mcp-toolkit` を入れた場合のみ、6 ツールを `/mcp` に追加する。`/mcp` 自体に認証は無く、broker の token を迂回できる点に注意
+- `@nuxtjs/mcp-toolkit` を入れた場合のみ、9 ツールを `/mcp` に追加する。`/mcp` 自体に認証は無く、broker の token を迂回できる点に注意
 
 ## CLI
 

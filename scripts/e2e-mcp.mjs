@@ -23,13 +23,17 @@
  *   E2E_CLI: path of the CLI entry to drive (default packages/cli/dist/main.mjs)
  *   E2E_KEEP=1: keep the temp dir
  *
+ * Also runs the protocol scenarios (set_protocol / unset_protocol / get_protocol, list_peers(protocol),
+ * send_message(meta), broker restart) against protocol repos given as local paths. They are generated in
+ * <repo>/.e2e/ (p1, p1b, p2) and removed when the script ends, also on failure.
+ *
  * Never talks to 192.168.1.202: AGENT_MESSENGER_* / CLAUDE_CODE_MESSAGING_* are stripped
  * from the child environment, the config file is pointed at an empty temp path and
  * discovery is restricted to E2E_DISCOVERY_ADDR.
  */
 import { execFileSync, spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer as createHttpServer } from "node:http";
 import { createServer as createNetServer } from "node:net";
 import { tmpdir } from "node:os";
@@ -61,6 +65,8 @@ const REMOTE_HOST = process.env.E2E_BROKER_HOST ?? "";
 const REMOTE_PORT = Number(process.env.E2E_BROKER_PORT ?? PORT);
 const BROKER_URL = REMOTE_HOST ? `http://${REMOTE_HOST}:${REMOTE_PORT}` : `http://127.0.0.1:${PORT}`;
 
+/** local protocol repos of the protocol scenarios (inside the worktree, not in the system temp dir) */
+const PROTO_DIR = join(ROOT, ".e2e");
 const TMP = mkdtempSync(join(process.env.TMPDIR ?? tmpdir(), "am-e2e-"));
 const NPM_CACHE = join(TMP, "npmcache");
 const children = new Set();
@@ -323,19 +329,138 @@ async function exchange(a, b, toName, text) {
   return { sent: s, viaCheck, viaChannel, checkText: c.text };
 }
 
+const TOOL_NAMES = "list_peers,send_message,send_ping,set_name,set_summary,check_messages,set_protocol,unset_protocol,get_protocol";
+
+// ---------------------------------------------------------------- protocol scenarios
+const PROTO_NAME = "e2e-proto";
+
+/** write a local protocol repo (protocol.json + PROTOCOL.md) and return its path */
+function writeProtoRepo(dirName, version, doc) {
+  const dir = join(PROTO_DIR, dirName);
+  mkdirSync(dir, { recursive: true });
+  const manifest = {
+    name: PROTO_NAME,
+    version,
+    description: `e2e protocol ${version}`,
+    messages: { request: { type: "object", required: ["ref"], properties: { ref: { type: "string" } } } },
+  };
+  writeFileSync(join(dir, "protocol.json"), JSON.stringify(manifest, null, 2) + "\n");
+  writeFileSync(join(dir, "PROTOCOL.md"), doc);
+  return dir;
+}
+
+/** read the text of a message that `m` was sent: check_messages, or the channel notification when the push won */
+async function receiveText(m, marker) {
+  for (let i = 0; i < 40; i++) {
+    const c = await m.tool("check_messages");
+    if (c.text.includes(marker)) return c.text;
+    const n = m.notifications.find((x) => x.method === "notifications/claude/channel" && String(x.params?.content ?? "").includes(marker));
+    if (n) return String(n.params.content);
+    await sleep(150);
+  }
+  return "(not received)";
+}
+
+/**
+ * Design 8: scenarios 2-9 (1 = tools/list in mcpFlow, 10 = the unchanged plain send_message checks).
+ * a / b are the two peers of mcpFlow, o is a third peer used to list (list_peers leaves out the caller).
+ * restartBroker is null when the broker is not ours.
+ */
+async function protocolFlow(a, b, aName, bName, o, restartBroker) {
+  const p1 = writeProtoRepo("p1", "1.0.0", "# e2e-proto 1.0.0\nE2E-DOC-ONE: request carries ref.\n");
+  const p1b = writeProtoRepo("p1b", "1.0.0", "# e2e-proto 1.0.0 (other body)\nE2E-DOC-OTHER.\n");
+  const p2 = writeProtoRepo("p2", "1.1.0", "# e2e-proto 1.1.0\nE2E-DOC-TWO: request carries ref and note.\n");
+
+  // 2. A declares 1.0.0
+  const s2 = await a.tool("set_protocol", { repo: p1 });
+  check(`protocol 2: ${a.label} set_protocol(p1) → Protocol set: ${PROTO_NAME}@1.0.0`, !s2.isError && s2.text.startsWith(`Protocol set: ${PROTO_NAME}@1.0.0 (sha256 `), s2.text);
+
+  // 3. B lists by protocol: only A, with the Protocol line
+  const l3 = await b.tool("list_peers", { protocol: PROTO_NAME });
+  check(
+    "protocol 3: list_peers(protocol) → only A, with its Protocol line",
+    !l3.isError && l3.text.startsWith("Found 1 peer(s)") && l3.text.includes(`Name: ${aName}`) && l3.text.includes(`Protocol: ${PROTO_NAME}@1.0.0`) && !l3.text.includes(`Name: ${bName}`),
+    l3.text.split("\n").slice(0, 2).join(" | ")
+  );
+
+  // 4. B reads the definition
+  const g4 = await b.tool("get_protocol", { name: PROTO_NAME });
+  check("protocol 4: get_protocol → heading, protocol.json and the PROTOCOL.md body", !g4.isError && g4.text.startsWith(`${PROTO_NAME}@1.0.0 (sha256 `) && g4.text.includes("E2E-DOC-ONE") && g4.text.includes('"name": "e2e-proto"'), g4.text.split("\n")[0]);
+
+  // 5. same name / version, other body → conflict
+  const c5 = await b.tool("set_protocol", { repo: p1b });
+  check("protocol 5: set_protocol(p1b, same name / version, other body) → PROTOCOL_CONFLICT", c5.isError && c5.text.startsWith("PROTOCOL_CONFLICT: "), c5.text.split("\n")[0]);
+
+  // 6. B declares 1.1.0; filters; latest
+  const s6 = await b.tool("set_protocol", { repo: p2 });
+  check(`protocol 6: ${b.label} set_protocol(p2) → Protocol set: ${PROTO_NAME}@1.1.0`, !s6.isError && s6.text.startsWith(`Protocol set: ${PROTO_NAME}@1.1.0 (sha256 `), s6.text);
+  const l6a = await o.tool("list_peers", { protocol: PROTO_NAME, version: "1.0.0" });
+  check("protocol 6: list_peers(version 1.0.0) → A only", l6a.text.startsWith("Found 1 peer(s)") && l6a.text.includes(`Name: ${aName}`) && !l6a.text.includes(`Name: ${bName}`), l6a.text.split("\n")[0]);
+  const l6b = await o.tool("list_peers", { protocol: PROTO_NAME });
+  check("protocol 6: list_peers(no version) → A and B", l6b.text.startsWith("Found 2 peer(s)") && l6b.text.includes(`Name: ${aName}`) && l6b.text.includes(`Name: ${bName}`), l6b.text.split("\n")[0]);
+  const g6 = await o.tool("get_protocol", { name: PROTO_NAME });
+  check("protocol 6: get_protocol(no version) → 1.1.0", !g6.isError && g6.text.startsWith(`${PROTO_NAME}@1.1.0 (sha256 `) && g6.text.includes("E2E-DOC-TWO"), g6.text.split("\n")[0]);
+
+  // 7. B → A with meta 1.1.0 while A serves 1.0.0: mismatch on A, warning on A's reply
+  const m7 = `proto meta ${Date.now()}`;
+  const s7 = await b.tool("send_message", { to: aName, message: m7, meta: { protocol: PROTO_NAME, version: "1.1.0" } });
+  check(`protocol 7: ${b.label} → ${a.label} send_message(meta)`, !s7.isError && s7.text.startsWith(`Message sent to ${aName} (`), s7.text);
+  const r7 = await receiveText(a, m7);
+  check("protocol 7: receiver shows Protocol line with mismatch", r7.includes(`Protocol: ${PROTO_NAME}@1.1.0 (this server: 1.0.0, mismatch)`), r7.split("\n").slice(0, 3).join(" | "));
+  const reply7 = `proto reply ${Date.now()}`;
+  const a7 = await a.tool("send_message", { to: bName, message: reply7 });
+  check(
+    "protocol 7: the reply result carries the version mismatch warning",
+    !a7.isError && a7.text.includes(`[agent-messenger warning] protocol version mismatch: you sent ${PROTO_NAME}@1.1.0, this server serves ${PROTO_NAME}@1.0.0`),
+    a7.text.split("\n").join(" | ")
+  );
+  const r7b = await receiveText(b, reply7);
+  check("protocol 7: the reply reaches B with the warning line and A's version", r7b.includes("protocol version mismatch") && r7b.includes(`Protocol: ${PROTO_NAME}@1.0.0`), r7b.split("\n").slice(0, 3).join(" | "));
+
+  // 8. A withdraws 1.0.0
+  const u8 = await a.tool("unset_protocol");
+  check("protocol 8: unset_protocol() → Protocol unset: (all, 1)", !u8.isError && u8.text === "Protocol unset: (all, 1)", u8.text);
+  const l8 = await o.tool("list_peers", { protocol: PROTO_NAME, version: "1.0.0" });
+  check("protocol 8: list_peers(version 1.0.0) → none", l8.text === `No server for protocol "${PROTO_NAME}" (version: 1.0.0).`, l8.text);
+  const g8 = await o.tool("get_protocol", { name: PROTO_NAME, version: "1.0.0" });
+  check("protocol 8: get_protocol(version 1.0.0) → PROTOCOL_NOT_FOUND", g8.isError && g8.text.startsWith("PROTOCOL_NOT_FOUND: "), g8.text.split("\n")[0]);
+
+  // 9. broker restart: B's declaration is served again (persisted state or heartbeat resend)
+  if (restartBroker) {
+    await restartBroker();
+    let g9 = { text: "", isError: true };
+    const t0 = Date.now();
+    while (Date.now() - t0 < 45000) {
+      try {
+        g9 = await o.tool("get_protocol", { name: PROTO_NAME });
+      } catch (e) {
+        g9 = { text: String(e), isError: true };
+      }
+      if (!g9.isError && g9.text.startsWith(`${PROTO_NAME}@1.1.0 (`)) break;
+      await sleep(500);
+    }
+    check("protocol 9: after the broker restart get_protocol returns 1.1.0", !g9.isError && g9.text.startsWith(`${PROTO_NAME}@1.1.0 (`), `${Math.round((Date.now() - t0) / 100) / 10} s: ${g9.text.split("\n")[0]}`);
+    // B is listed again with its declaration (A withdrew its own in scenario 8)
+    const l9 = await o.tool("list_peers", { protocol: PROTO_NAME });
+    check("protocol 9: list_peers(protocol) after the restart → B", l9.text.startsWith("Found 1 peer(s)") && l9.text.includes(`Name: ${bName}`), l9.text.split("\n")[0]);
+  } else {
+    log("protocol 9 skipped: the broker is not started by this script");
+  }
+}
+
 async function mcpFlow(a, b, aName, bName) {
   const ia = await a.initialize();
   check(`${a.label}: initialize`, ia.serverInfo?.name === "agent-messenger" && ia.protocolVersion === "2025-06-18", `serverInfo=${JSON.stringify(ia.serverInfo)}`);
   const tl = await a.request("tools/list");
   const names = (tl.tools ?? []).map((t) => t.name).join(",");
-  check(`${a.label}: tools/list`, names === "list_peers,send_message,send_ping,set_name,set_summary,check_messages", names);
+  check(`${a.label}: tools/list`, names === TOOL_NAMES, names);
   const sn = await a.tool("set_name", { name: aName });
   check(`${a.label}: set_name`, sn.text === `Name set: "${aName}"`, sn.text);
 
   const ib = await b.initialize();
   check(`${b.label}: initialize`, ib.serverInfo?.name === "agent-messenger", `serverInfo=${JSON.stringify(ib.serverInfo)}`);
   const tlb = await b.request("tools/list");
-  check(`${b.label}: tools/list`, (tlb.tools ?? []).length === 6, `${(tlb.tools ?? []).length} tools`);
+  check(`${b.label}: tools/list`, (tlb.tools ?? []).length === 9, `${(tlb.tools ?? []).length} tools`);
   const snb = await b.tool("set_name", { name: bName });
   check(`${b.label}: set_name`, snb.text === `Name set: "${bName}"`, snb.text);
 
@@ -436,16 +561,20 @@ async function main() {
   const b = doNode ? new Mcp("mcp node", cliEnv(registry.url, pkgs, { AGENT_MESSENGER_CLIENT: "node" })) : null;
   const opened = [a, b].filter(Boolean);
   try {
+    let pair = null; // [first, second, firstName, secondName] of mcpFlow
     if (a && b) {
       await mcpFlow(a, b, "e2e-native", "e2e-node");
+      pair = [a, b, "e2e-native", "e2e-node"];
     } else if (a) {
       const x = new Mcp("mcp node (peer)", cliEnv(registry.url, pkgs, { AGENT_MESSENGER_CLIENT: "node" }));
       opened.push(x);
       await mcpFlow(a, x, "e2e-native", "e2e-node");
+      pair = [a, x, "e2e-native", "e2e-node"];
     } else if (b) {
       const x = new Mcp("mcp node (peer)", cliEnv(registry.url, pkgs, { AGENT_MESSENGER_CLIENT: "node" }));
       opened.push(x);
       await mcpFlow(b, x, "e2e-node", "e2e-node2");
+      pair = [b, x, "e2e-node", "e2e-node2"];
     }
     if (a) {
       check("mcp native: loader picked the platform package", loaderPicked(a) === NATIVE_PKG, `${loaderPicked(a)}; cache: ${cacheEntries(pkgsNative).join(", ")}`);
@@ -530,6 +659,24 @@ async function main() {
       check("fallback: AGENT_MESSENGER_CLIENT=native exits 1 when missing", forced.status === 1 && /cannot start|is not available/.test(forced.stderr), forced.stderr.trim().split("\n").pop());
       registry.publish(nativeDir);
     }
+
+    // 7. protocol scenarios (design 8, 2-9)
+    if (pair) {
+      const o = new Mcp("mcp node (observer)", cliEnv(registry.url, pkgs, { AGENT_MESSENGER_CLIENT: "node" }));
+      opened.push(o);
+      await o.initialize();
+      let restartBroker = null;
+      if (broker) {
+        restartBroker = async () => {
+          broker.proc.kill("SIGTERM");
+          const code = await broker.exited;
+          check("protocol 9: broker SIGTERM → exit 0", code === 0, `exit=${code}`);
+          broker = brokerMode === "cli" ? await startBrokerCli(registry.url, join(TMP, "pkgs-broker"), PORT, true) : await startBrokerDirect();
+          check("protocol 9: broker restarted", broker.health && broker.health.status === "ok", broker.health ? `v${broker.health.version}` : broker.stderr());
+        };
+      }
+      await protocolFlow(pair[0], pair[1], pair[2], pair[3], o, restartBroker);
+    }
   } finally {
     for (const m of opened) {
       const code = await m.close();
@@ -570,6 +717,7 @@ main()
     }
     await sleep(200);
     if (!process.env.E2E_KEEP) rmSync(TMP, { recursive: true, force: true });
+    if (!process.env.E2E_KEEP) rmSync(PROTO_DIR, { recursive: true, force: true });
     const passed = results.filter((r) => r.ok).length;
     console.log(`\n${failed === 0 ? "E2E OK" : "E2E FAILED"}: ${passed} passed, ${failed} failed (${TARGET}, broker=${REMOTE_HOST ? "remote" : brokerMode})`);
     process.exit(failed === 0 ? 0 : 1);

@@ -22,6 +22,11 @@ Tools:
 - set_name: give this session a stable name (e.g. "master-cap", "agent-messenger") so others can address it by name
 - set_summary: describe what you are working on (visible in list_peers)
 - check_messages: read unread message texts. Notices are delivered into the conversation automatically (via the session inbox socket, or via channel push when Claude Code was started with --dangerously-load-development-channels server:agent-messenger); call check_messages any time to read.
+- set_protocol: declare that this session serves a protocol (a public GitHub / Gitea repo or a local path holding protocol.json and PROTOCOL.md), so peers can find it with list_peers(protocol)
+- unset_protocol: stop serving a protocol (all of them when no name is given)
+- get_protocol: read a protocol definition held by the broker (protocol.json and PROTOCOL.md) to speak it
+- list_peers(protocol, version): only the sessions that serve that protocol (and version)
+- send_message(meta): meta = {protocol, version} tags the message with the protocol it follows; the receiver is warned when its served version differs
 
 On start, call set_name (if not already named) and set_summary.`;
 
