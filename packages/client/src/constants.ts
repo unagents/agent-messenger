@@ -62,6 +62,13 @@ export const DEFAULT_GRACE_MS = 30000;
 /** Minimum spacing of re-resolve attempts once the grace period is over. */
 export const RESOLVE_RETRY_MS = 5000;
 
+/**
+ * Broker autonomy (0.11.0). Client-only names, outside the protocol ENV table; copies of the protocol package's
+ * values (pinned by `test/constants.test.ts`).
+ */
+export const DISCOVERY_TARGETS_ENV = "AGENT_MESSENGER_DISCOVERY_TARGETS";
+export const CLIENT_STATE_ENV = "AGENT_MESSENGER_CLIENT_STATE";
+
 /** Session inbox socket env names. */
 export const SESSION_SOCKET_ENV = "CLAUDE_CODE_MESSAGING_SOCKET";
 export const SESSION_TOKEN_ENV = "CLAUDE_CODE_MESSAGING_TOKEN";

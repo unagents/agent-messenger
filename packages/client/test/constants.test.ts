@@ -28,3 +28,10 @@ describe("client constants match @unagents/messenger-protocol", () => {
     expect({ [local.DISCOVERY_KEY]: local.DISCOVERY_PROBE_VALUE }).toEqual(protocol.DISCOVERY_PROBE);
   });
 });
+
+describe("broker autonomy constants (0.11.0)", () => {
+  it("env names match the protocol package", () => {
+    expect(local.DISCOVERY_TARGETS_ENV).toBe(protocol.DISCOVERY_TARGETS_ENV);
+    expect(local.CLIENT_STATE_ENV).toBe(protocol.CLIENT_STATE_ENV);
+  });
+});
