@@ -83,6 +83,8 @@ claude --dangerously-load-development-channels server:agent-messenger
 | `set_protocol` | `repo`（と任意の `version`）の protocol を、このセッションが話すものとして宣言する。定義を取得して broker に登録する |
 | `unset_protocol` | 宣言を解除する。`name` 省略で自分の全宣言 |
 | `get_protocol` | broker が持つ protocol の定義（`protocol.json` と `PROTOCOL.md`）を表示する。`version` 省略で最新 |
+| `get_broker` | 今繋いでいる broker（url・id・版・mesh）、その決まり方（`env` / `saved` / `discovery` / `fallback` / `set_broker`）、保存済みの broker、いま発見で見える broker を表示する |
+| `set_broker` | このセッションの接続先を `url` の broker に切り替える（名前・summary・protocol 宣言は引き継ぐ）。`url` 省略で固定を外して再解決。`persist: true` で次回以降も使う設定として保存する |
 
 ## protocol（0.10.0）
 
@@ -114,7 +116,7 @@ export default defineNuxtConfig({
 ```
 
 - `messenger:message` に listener があればそこへ配信（全 listener 成功で ack、失敗は再配信）。無ければ消費せず `useMessenger().checkMessages()` で取得
-- `@nuxtjs/mcp-toolkit` を入れた場合のみ、9 ツールを `/mcp` に追加する。`/mcp` 自体に認証は無く、broker の token を迂回できる点に注意
+- `@nuxtjs/mcp-toolkit` を入れた場合のみ、11 ツールを `/mcp` に追加する。`/mcp` 自体に認証は無く、broker の token を迂回できる点に注意
 
 ## CLI
 
@@ -129,22 +131,25 @@ npx -y @unagents/messenger send master-cap "作業完了"
 
 上から順に試し、最初に決まった所を使う。
 
+0. `set_broker(url)` で固定した接続先（セッション内のみ。`AGENT_MESSENGER_HOST` より優先）
 1. `AGENT_MESSENGER_HOST`（+ `AGENT_MESSENGER_PORT`）。`auto` または未設定なら次へ
-2. `~/.agent-messenger/config.json` の `{"brokers": ["http://192.168.1.202:7901", ...]}`。先頭から `/health` が返る最初の 1 つ
-3. LAN 自動発見: UDP ブロードキャスト（port 7902）に対し、稼働中の broker が `{id, port, version}` で応答。最初に応じた broker
+2. 保存した接続先: `~/.agent-messenger/client.json` の `broker`、次に旧 `~/.agent-messenger/config.json` の `{"brokers": [...]}`（先頭から `/health` が返る最初の 1 つ）。旧 config は **0.12.0 で廃止予定**で、使うと 1 回だけ警告をログに出す。移行は `set_broker(url, persist: true)`
+3. LAN 自動発見: UDP ブロードキャスト（port 7902）に対し、稼働中の broker が `{id, port, version}` で応答。fallback でない broker を優先し、同条件なら mesh 参加の broker を優先
 4. `127.0.0.1:7901`。mcp はここで broker を自動起動する
 
-`agent-messenger discover` で、設定ファイルの内容・応答した broker・最終的に選んだ URL を表示する。broker 側は起動時に UDP 7902 で応答を始める（`AGENT_MESSENGER_DISCOVERY=off` で無効化）。
+`agent-messenger discover` で、設定ファイルの内容・応答した broker・最終的に選んだ URL を表示する（セッション内の `get_broker` は固定・保存・発見を一度に表示する）。broker 側は起動時に UDP 7902 で応答を始める（`AGENT_MESSENGER_DISCOVERY=off` で無効化）。
 
 ## 環境変数
 
 | 変数 | 既定 | 用途 |
 |---|---|---|
 | `AGENT_MESSENGER_HOST` | なし（`auto`） | broker のホスト。`127.0.0.1` のときは mcp 起動時に broker を自動起動する。未設定なら上記の解決順 |
-| `AGENT_MESSENGER_CONFIG` | `~/.agent-messenger/config.json` | broker 一覧の設定ファイル |
+| `AGENT_MESSENGER_CONFIG` | `~/.agent-messenger/config.json` | 旧 broker 一覧の設定ファイル（client 用。0.12.0 で廃止予定。broker は読まない） |
+| `AGENT_MESSENGER_CLIENT_STATE` | `~/.agent-messenger/client.json` | client の保存した接続先（`set_broker(url, persist: true)` が書く） |
 | `AGENT_MESSENGER_BROKER_ID` | ホスト名 | broker の識別子（`/health` と発見応答に載る） |
 | `AGENT_MESSENGER_DISCOVERY` | `on` | `off` で UDP 発見を無効化 |
 | `AGENT_MESSENGER_DISCOVERY_PORT` / `_ADDR` / `_TIMEOUT_MS` | `7902` / なし / `1000` | 発見用 UDP ポート・探索先固定・応答待ち |
+| `AGENT_MESSENGER_DISCOVERY_TARGETS` | なし | 発見の送信先を `host:port` のカンマ区切りで明示（設定時は broadcast の代わりに client の probe と broker の announce をここへ送る。broadcast が届かない LAN とテスト用。client と broker で同じ値にする） |
 | `AGENT_MESSENGER_PORT` | `7901` | broker のポート（claude-peers の 7899 と衝突させないため別番号） |
 | `AGENT_MESSENGER_BIND` | `0.0.0.0` | broker の bind アドレス |
 | `AGENT_MESSENGER_TOKEN` | なし | Bearer トークン。broker と全クライアントで同じ値を設定 |
@@ -156,6 +161,7 @@ npx -y @unagents/messenger send master-cap "作業完了"
 | `AGENT_MESSENGER_FALLBACK_INTERVAL_MS` | `10000` | fallback broker が他の broker を探す間隔 |
 | `AGENT_MESSENGER_MESH` | `off` | `on` で常設 broker メッシュに参加（broker 用。下記） |
 | `AGENT_MESSENGER_MESH_INTERVAL_MS` | `5000` | メッシュ同期の間隔 |
+| `AGENT_MESSENGER_MESH_ANNOUNCE_MS` | `10000` | メッシュ broker が自分を UDP で告知する間隔（相手の失効は間隔の 3 倍 + 5 秒） |
 | `AGENT_MESSENGER_MESH_PEER_TTL_MS` | `300000` | 他 broker から複製した peer が、その broker の同期途絶後に残る時間 |
 
 ## fallback broker の後処理と client の再解決（0.7.0）
@@ -170,13 +176,27 @@ npx -y @unagents/messenger send master-cap "作業完了"
 
 常設 broker 同士（例: 202 と Mac）を相互同期し、どの broker に繋いだ peer からも `list_peers` で全ホストの peer が見えるようにする。
 
-- 参加するのは `AGENT_MESSENGER_MESH=on` で起動した broker のみ。相手は `AGENT_MESSENGER_CONFIG` の `brokers` に明示した URL（毎回読み直す）。fallback で自動起動された broker は `on` にしないので参加せず、`/mesh/sync` に 404 を返す。
+- 参加するのは `AGENT_MESSENGER_MESH=on` で起動した broker のみ。相手は設定ファイル無しで UDP 発見により見つける（0.11.0〜）。fallback で自動起動された broker は `on` にしないので参加せず、`/mesh/sync` に 404 を返す。
 - 同期は `POST /mesh/sync`（全 mesh broker が相互に送る）。自分に直接登録された peer を送り、相手の peer を受け取る。相手の peer 宛の未配信メッセージも一緒に転送し、相手が受理してから手元で破棄する。
 - 片側が停止中でも、もう一方は送受信を続ける。停止側の peer 宛メッセージは手元に積まれ、復帰後の次の同期で届く。複製 peer は元 broker の同期が途絶えて `AGENT_MESSENGER_MESH_PEER_TTL_MS` 経つと消える。
-- 同期の相手は `AGENT_MESSENGER_CONFIG` の `brokers`（各 broker が相手一覧として読む）。自分自身が一覧に入っていても自動で除外する。mesh broker ごとに `AGENT_MESSENGER_BROKER_ID` を別の値にする。
+- 相手の見つけ方: mesh broker は起動時に 1 回 probe し、以後 `AGENT_MESSENGER_MESH_ANNOUNCE_MS` ごとに UDP で自分を告知（announce）する。受けた broker は **同じ token の broker だけ**を相手にする。token は UDP に流さず、token を鍵にした HMAC で照合する。token が違う broker は相手にならない（broker ログに `token mismatch` を 1 回出す）。
+- 相手の失効: announce が途絶えて告知間隔の 3 倍 + 5 秒を過ぎ、かつ直近の同期も失敗している相手を一覧から外す。UDP だけが落ちて同期が通っている間は残る。複製した peer の寿命（`AGENT_MESSENGER_MESH_PEER_TTL_MS`）とは別の時計。
+- 自分自身は id で除外する。mesh broker ごとに `AGENT_MESSENGER_BROKER_ID` を別の値にする。
+- 発見を使うので `AGENT_MESSENGER_MESH=on` では `AGENT_MESSENGER_DISCOVERY=off` にしない（相手を見つけられない。起動時に警告を出す）。UDP broadcast が届かない LAN は `AGENT_MESSENGER_DISCOVERY_TARGETS` で相手の発見ポートを明示する。
+- 旧 broker の `config.json` の `brokers` を相手一覧として読む動作は廃止した（broker 側のみ。client の保存した接続先としては 0.12.0 まで読む）。
 - クライアントの変更は不要。旧 client（0.6.3）はそのまま使える（`list_peers` は従来の peer 形式を返す）。
-- 全 broker で `AGENT_MESSENGER_TOKEN` を同じ値にする（同期にも使う）。
+- 全 broker で `AGENT_MESSENGER_TOKEN` を同じ値にする（相手の照合と同期の認証に使う）。
+- **混在注意**: メッシュ broker は同時に 0.11.0 へ上げる。0.11 の mesh broker は 0.10 の broker を発見で相手にしない（0.10 の応答に mesh の印が無いため）。0.10 側が config で 0.11 を指していれば 0.10 → 0.11 の同期だけ成立し、peer は両側に見えるが、0.11 から 0.10 側 peer 宛のメッセージは 0.10 を 0.11 に更新して次の同期が通るまで 0.11 側に保留される。
 - 有効化は常設 broker の起動環境に `AGENT_MESSENGER_MESH=on` を足す（unit への追加は常設 2 台目の配備時に行う）。
+
+## broker の接続制御（0.11.0）
+
+- `get_broker` は現在の接続先・決まり方・保存済み・発見中の broker を返す。発見は呼ぶたびに 1 回実行する。
+- `set_broker(url, persist?)` の手順: 新 URL の `/health`（2 秒）→ 旧 broker の未読を手元へ退避（`check_messages` で読める）→ 旧 broker に unregister → 新 broker に名前・summary・protocol 宣言を引き継いで登録。新 broker に登録できなければ旧 broker へ戻す。
+- 固定（pin）は `AGENT_MESSENGER_HOST` より優先する。固定先が落ちても猶予（`AGENT_MESSENGER_GRACE_MS`）の間は同じ URL を再試行し、猶予が尽きたら固定を外して通常の解決順で別の broker に移る。固定先が復帰しても自動では戻らない。
+- `set_broker()`（url 省略）は固定を外して再解決する。`persist: true` を付けると保存した接続先（`client.json`）を書き換える（url 省略時は削除）。
+- エラー: `INVALID_BROKER_URL` / `BROKER_UNREACHABLE`（変更なし）/ `BROKER_SWITCH_FAILED`（旧 broker に復帰）/ `BROKER_SWITCH_BUSY` / `SAVE_FAILED`（切替自体は成功）。
+- ライブラリ: `MessengerClient.getBroker()` / `setBroker(url?, { persist? })`。Nuxt の `useMessenger()` からも同じ。
 
 ## 配信の仕組み
 

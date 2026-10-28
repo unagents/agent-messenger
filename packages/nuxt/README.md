@@ -71,6 +71,11 @@ public GitHub / Gitea repo or a local path, `unsetProtocol(name?)` withdraws it 
 that declare the protocol, and `send(to, text, delivery, { protocol, version })` tags a message with the protocol it
 follows. The same three tools are on `/mcp` (see below).
 
+Broker (0.11.0): `getBroker()` returns the broker in use (`url`, `id`, `version`, `mesh`), where it came from (`source`: `env` / `saved` /
+`discovery` / `fallback` / `set_broker`), the saved one and the brokers discovery finds now. `setBroker(url?, { persist? })` switches this
+server to another broker, keeping name, summary and protocol declarations; without `url` the choice is dropped and the broker is resolved
+again. The `brokers` option is treated like a saved broker (tried first, in order).
+
 ## Receiving: the `messenger:message` hook
 
 ```ts
@@ -123,7 +128,7 @@ export default defineNuxtConfig({
 })
 ```
 
-`/mcp` then lists `set_name`, `set_summary`, `list_peers`, `send_message`, `send_ping`, `check_messages`, `set_protocol`, `unset_protocol`, `get_protocol`, with the same
+`/mcp` then lists `set_name`, `set_summary`, `list_peers`, `send_message`, `send_ping`, `check_messages`, `set_protocol`, `unset_protocol`, `get_protocol`, `get_broker`, `set_broker`, with the same
 texts and error messages as the stdio client (for example `Invalid delivery: bogus (use "pull" or "push")`). The tools
 are added per request through the toolkit's `mcp:config:resolved` hook; a tool with the same name that you define yourself
 is kept and the module's is skipped. They also appear on named handlers (`/mcp/<name>`). Set `mcp.instructions` yourself if

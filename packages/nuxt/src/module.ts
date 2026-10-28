@@ -5,7 +5,7 @@ export interface ModuleOptions {
   name: string
   /** Peer summary. */
   summary: string
-  /** Broker URLs tried first. Empty = config file, discovery, then the local broker. */
+  /** Saved broker URLs (tried in order after `set_broker` / `AGENT_MESSENGER_HOST` and the client state file). Empty = legacy config file, discovery, then the local broker. */
   brokers: string[]
   /** Spawn a local broker when none is reachable. Default off. */
   autoStartBroker: boolean
