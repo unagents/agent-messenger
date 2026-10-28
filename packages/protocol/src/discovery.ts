@@ -15,9 +15,14 @@ export const DISCOVERY_PROBE_VALUE = "probe" as const;
 /** Value of `DISCOVERY_KEY` in a broker reply. */
 export const DISCOVERY_REPLY_VALUE = "broker" as const;
 
+/** Value of `DISCOVERY_KEY` in a mesh broker's self-announcement (0.11.0). */
+export const DISCOVERY_ANNOUNCE_VALUE = "announce" as const;
+
 /** Client → broadcast: `{"agent-messenger":"probe"}` */
 export interface DiscoveryProbe {
   [DISCOVERY_KEY]: typeof DISCOVERY_PROBE_VALUE;
+  /** Mesh brokers add a 16 byte random hex nonce; the reply's `mac` is bound to it. Clients send none. */
+  n?: string;
 }
 
 /** Broker → client: `{"agent-messenger":"broker","id":..,"port":..,"version":..}` */
@@ -31,7 +36,27 @@ export interface DiscoveryReply {
   version: string;
   /** Present (`true`) only when the broker is a local fallback; clients prefer other brokers, fallbacks never relay to each other. */
   fallback?: true;
+  /** Present (`true`) only when the broker takes part in the mesh (`AGENT_MESSENGER_MESH=on`). */
+  mesh?: true;
+  /** Mesh broker only, and only when the probe carried `n`: `meshMac(token, n, id, port)`. */
+  mac?: string;
 }
+
+/** Mesh broker → broadcast, every `AGENT_MESSENGER_MESH_ANNOUNCE_MS`: `{"agent-messenger":"announce",id,port,version,mesh:true,ts,mac}` */
+export interface DiscoveryAnnounce {
+  [DISCOVERY_KEY]: typeof DISCOVERY_ANNOUNCE_VALUE;
+  id: string;
+  port: number;
+  version: string;
+  mesh: true;
+  /** Send time (ms since epoch); also the MAC nonce (decimal string). Receivers accept `|now - ts| <= MESH_ANNOUNCE_MAX_SKEW_MS`. */
+  ts: number;
+  /** `meshMac(token, String(ts), id, port)` */
+  mac: string;
+}
+
+/** Announces older (or newer) than this are ignored. */
+export const MESH_ANNOUNCE_MAX_SKEW_MS = 60_000;
 
 /** The exact probe object sent by the client. */
 export const DISCOVERY_PROBE: DiscoveryProbe = { [DISCOVERY_KEY]: DISCOVERY_PROBE_VALUE };

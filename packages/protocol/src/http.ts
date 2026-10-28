@@ -135,6 +135,8 @@ export interface HealthResponse {
   peers: number;
   /** Present (`true`) only when the broker was started as a local fallback (`AGENT_MESSENGER_FALLBACK=1`). */
   fallback?: true;
+  /** Present (`true`) only when the broker takes part in the mesh (0.11.0). */
+  mesh?: true;
 }
 
 // --- POST /register ---

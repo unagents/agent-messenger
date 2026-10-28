@@ -116,3 +116,14 @@ export const PROTOCOL_ERROR_CODES = [
 ] as const;
 
 export type ProtocolErrorCode = (typeof PROTOCOL_ERROR_CODES)[number];
+
+// --- Broker autonomy (0.11.0) ---
+
+/** Discovery send targets (`host:port`, comma separated). When set, probes / announces go there instead of broadcast. */
+export const DISCOVERY_TARGETS_ENV = "AGENT_MESSENGER_DISCOVERY_TARGETS";
+
+/** Client state file with the saved broker (default `~/.agent-messenger/client.json`). */
+export const CLIENT_STATE_ENV = "AGENT_MESSENGER_CLIENT_STATE";
+
+/** Mesh announce interval in ms (default 10000). */
+export const MESH_ANNOUNCE_ENV = "AGENT_MESSENGER_MESH_ANNOUNCE_MS";
