@@ -23,6 +23,11 @@
  *   E2E_CLI: path of the CLI entry to drive (default packages/cli/dist/main.mjs)
  *   E2E_KEEP=1: keep the temp dir
  *
+ * Also runs the mesh scenario (design broker-autonomy 6.2): two mesh brokers find each other by UDP announce
+ * (AGENT_MESSENGER_DISCOVERY_TARGETS on loopback), two clients pinned with set_broker, the connected broker is
+ * stopped, the client moves to the other one and send / protocol declarations keep working, and a broker with
+ * another token is never a member. Ports: E2E_PORT + 20..25 (HTTP, UDP). Skipped with E2E_BROKER_HOST.
+ *
  * Also runs the protocol scenarios (set_protocol / unset_protocol / get_protocol, list_peers(protocol),
  * send_message(meta), broker restart) against protocol repos given as local paths. They are generated in
  * <repo>/.e2e/ (p1, p1b, p2) and removed when the script ends, also on failure.
@@ -329,7 +334,7 @@ async function exchange(a, b, toName, text) {
   return { sent: s, viaCheck, viaChannel, checkText: c.text };
 }
 
-const TOOL_NAMES = "list_peers,send_message,send_ping,set_name,set_summary,check_messages,set_protocol,unset_protocol,get_protocol";
+const TOOL_NAMES = "list_peers,send_message,send_ping,set_name,set_summary,check_messages,set_protocol,unset_protocol,get_protocol,get_broker,set_broker";
 
 // ---------------------------------------------------------------- protocol scenarios
 const PROTO_NAME = "e2e-proto";
@@ -460,7 +465,7 @@ async function mcpFlow(a, b, aName, bName) {
   const ib = await b.initialize();
   check(`${b.label}: initialize`, ib.serverInfo?.name === "agent-messenger", `serverInfo=${JSON.stringify(ib.serverInfo)}`);
   const tlb = await b.request("tools/list");
-  check(`${b.label}: tools/list`, (tlb.tools ?? []).length === 9, `${(tlb.tools ?? []).length} tools`);
+  check(`${b.label}: tools/list`, (tlb.tools ?? []).length === 11, `${(tlb.tools ?? []).length} tools`);
   const snb = await b.tool("set_name", { name: bName });
   check(`${b.label}: set_name`, snb.text === `Name set: "${bName}"`, snb.text);
 
@@ -482,6 +487,162 @@ function loaderPicked(mcp) {
 
 function cacheEntries(pkgsDir) {
   return existsSync(pkgsDir) ? readdirSync(pkgsDir).sort() : [];
+}
+
+// ---------------------------------------------------------------- mesh scenario (broker autonomy, design 6.2)
+const MESH_PROTO = "e2e-mesh-proto";
+
+async function meshPost(url, token, path, body = {}) {
+  const r = await fetch(`${url}${path}`, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${token}` }, body: JSON.stringify(body) });
+  return r.json();
+}
+
+/** start a mesh broker on loopback; all brokers and clients share one explicit discovery target list */
+async function startMeshBroker(id, port, dport, token, targets) {
+  const env = baseEnv({
+    AGENT_MESSENGER_PORT: String(port),
+    AGENT_MESSENGER_BIND: "127.0.0.1",
+    AGENT_MESSENGER_TOKEN: token,
+    AGENT_MESSENGER_BROKER_ID: id,
+    AGENT_MESSENGER_STATE: join(TMP, `mesh-${id}.json`),
+    AGENT_MESSENGER_DISCOVERY: "on",
+    AGENT_MESSENGER_DISCOVERY_PORT: String(dport),
+    AGENT_MESSENGER_DISCOVERY_ADDR: "127.0.0.1",
+    AGENT_MESSENGER_DISCOVERY_TARGETS: targets,
+    AGENT_MESSENGER_MESH: "on",
+    AGENT_MESSENGER_MESH_ANNOUNCE_MS: "500",
+    AGENT_MESSENGER_MESH_INTERVAL_MS: "500",
+  });
+  const p = track(spawn(process.execPath, [BROKER_MAIN], { env, stdio: ["ignore", "ignore", "pipe"] }));
+  let stderr = "";
+  p.stderr.setEncoding("utf8").on("data", (d) => (stderr += d));
+  const exited = new Promise((r) => p.on("exit", (c, sig) => r(c ?? sig)));
+  const url = `http://127.0.0.1:${port}`;
+  return { proc: p, url, health: await waitHealth(url), stderr: () => stderr, exited, id, token };
+}
+
+async function meshFlow(registryUrl, pkgs) {
+  const [pa, pb, pc] = [PORT + 20, PORT + 22, PORT + 24];
+  const [da, db, dc] = [DISCOVERY_PORT + 20, DISCOVERY_PORT + 22, DISCOVERY_PORT + 24];
+  const targets = [da, db, dc].map((d) => `127.0.0.1:${d}`).join(",");
+  const A = await startMeshBroker("mesh-a", pa, da, TOKEN, targets);
+  const B = await startMeshBroker("mesh-b", pb, db, TOKEN, targets);
+  const opened = [];
+  let C = null;
+  let probe = null;
+  try {
+    // 1
+    check("mesh 1: brokers A and B are up with mesh: true", A.health?.status === "ok" && B.health?.status === "ok" && A.health.mesh === true && B.health.mesh === true, `A=${JSON.stringify(A.health)} B=${JSON.stringify(B.health)}`);
+    if (!A.health || !B.health) return;
+
+    // 2. a peer registered on A shows up on B (found each other by announce, then synced)
+    probe = (await meshPost(A.url, TOKEN, "/register", { pid: process.pid, hostname: "e2e-probe", cwd: ROOT, name: "mesh-probe" })).id;
+    let seen = false;
+    for (let i = 0; i < 25 && !seen; i++) {
+      const l = await meshPost(B.url, TOKEN, "/list-peers", { scope: "all" });
+      seen = Array.isArray(l) && l.some((p) => p.name === "mesh-probe");
+      if (!seen) await sleep(200);
+    }
+    check("mesh 2: A's peer is listed by B (mutual discovery and sync, <= 5 s)", seen, B.stderr().split("\n").filter((l) => /mesh/.test(l)).slice(-3).join(" | "));
+    check("mesh 2: B logged the discovery of A", /mesh: found mesh-a at http:\/\/127\.0\.0\.1:/.test(B.stderr()), B.stderr().match(/mesh: found[^\n]*/)?.[0] ?? "(no log)");
+
+    // 3. clients X and Y; discovery sees both brokers, set_broker pins X to A and Y to B
+    const clientEnv = (extra = {}) =>
+      cliEnv(registryUrl, pkgs, {
+        AGENT_MESSENGER_CLIENT: "node",
+        AGENT_MESSENGER_DISCOVERY_PORT: String(da),
+        AGENT_MESSENGER_DISCOVERY_TARGETS: targets,
+        AGENT_MESSENGER_CLIENT_STATE: join(TMP, "mesh-client.json"),
+        AGENT_MESSENGER_GRACE_MS: "2000",
+        ...extra,
+      });
+    const X = new Mcp("mesh client X", clientEnv());
+    const Y = new Mcp("mesh client Y", clientEnv());
+    opened.push(X, Y);
+    await X.initialize();
+    await Y.initialize();
+    await X.tool("set_name", { name: "mesh-x" });
+    await Y.tool("set_name", { name: "mesh-y" });
+    const gx0 = await X.tool("get_broker");
+    check("mesh 3: get_broker lists both mesh brokers from discovery", !gx0.isError && gx0.text.includes("discovered:") && gx0.text.includes("mesh-a") && gx0.text.includes("mesh-b"), gx0.text.split("\n").join(" | "));
+    const sx = await X.tool("set_broker", { url: A.url });
+    const sy = await Y.tool("set_broker", { url: B.url });
+    check("mesh 3: X pinned to A with source set_broker", !sx.isError && sx.text.startsWith(`broker: ${A.url} (id mesh-a, `) && sx.text.includes("mesh)") && sx.text.includes("source: set_broker") && sx.text.includes("pinned: yes"), sx.text.split("\n").join(" | "));
+    check("mesh 3: Y pinned to B with source set_broker", !sy.isError && sy.text.startsWith(`broker: ${B.url} (id mesh-b, `) && sy.text.includes("source: set_broker"), sy.text.split("\n").join(" | "));
+
+    // 4. X serves a protocol; Y finds X across brokers and sends with meta
+    const repo = join(PROTO_DIR, "mesh-p");
+    mkdirSync(repo, { recursive: true });
+    writeFileSync(join(repo, "protocol.json"), JSON.stringify({ name: MESH_PROTO, version: "1.0.0", description: "e2e mesh protocol", messages: { request: { type: "object" } } }, null, 2) + "\n");
+    writeFileSync(join(repo, "PROTOCOL.md"), "# e2e-mesh-proto 1.0.0\nMESH-DOC.\n");
+    const sp = await X.tool("set_protocol", { repo });
+    check("mesh 4: X set_protocol", !sp.isError && sp.text.startsWith(`Protocol set: ${MESH_PROTO}@1.0.0`), sp.text.split("\n")[0]);
+    let ly = { text: "" };
+    for (let i = 0; i < 25 && !ly.text.includes("Name: mesh-x"); i++) {
+      ly = await Y.tool("list_peers", { protocol: MESH_PROTO });
+      if (!ly.text.includes("Name: mesh-x")) await sleep(200);
+    }
+    check("mesh 4: Y list_peers(protocol) → X (declaration crossed A → B)", ly.text.includes("Name: mesh-x") && ly.text.includes(`Protocol: ${MESH_PROTO}@1.0.0`), ly.text.split("\n").slice(0, 2).join(" | "));
+    const m4 = `mesh meta ${Date.now()}`;
+    const s4 = await Y.tool("send_message", { to: "mesh-x", message: m4, meta: { protocol: MESH_PROTO, version: "1.0.0" } });
+    const r4 = await receiveText(X, m4);
+    check("mesh 4: Y → X send_message(meta) arrives with the Protocol line", !s4.isError && r4.includes(m4) && r4.includes(`Protocol: ${MESH_PROTO}@1.0.0`), s4.isError ? s4.text : r4.split("\n").slice(0, 3).join(" | "));
+
+    // 5. stop A
+    A.proc.kill("SIGTERM");
+    const codeA = await A.exited;
+    check("mesh 5: broker A stopped (SIGTERM → exit 0)", codeA === 0, `exit=${codeA}`);
+
+    // 6. X leaves the dead pinned broker after the grace period and finds B by discovery
+    let gx = { text: "" };
+    const t6 = Date.now();
+    while (Date.now() - t6 < 30000) {
+      gx = await X.tool("get_broker");
+      if (gx.text.startsWith(`broker: ${B.url} `)) break;
+      await sleep(500);
+    }
+    check("mesh 6: X moved to B with source discovery and no pin", gx.text.startsWith(`broker: ${B.url} (id mesh-b, `) && gx.text.includes("source: discovery") && gx.text.includes("pinned: no"), `${Math.round((Date.now() - t6) / 100) / 10} s: ${gx.text.split("\n").join(" | ")}`);
+
+    // 7. both directions again, and X's protocol declaration is served again
+    const m7a = `mesh after Y→X ${Date.now()}`;
+    const m7b = `mesh after X→Y ${Date.now()}`;
+    const s7a = await Y.tool("send_message", { to: "mesh-x", message: m7a, meta: { protocol: MESH_PROTO, version: "1.0.0" } });
+    const r7a = await receiveText(X, m7a);
+    const s7b = await X.tool("send_message", { to: "mesh-y", message: m7b, meta: { protocol: MESH_PROTO, version: "1.0.0" } });
+    const r7b = await receiveText(Y, m7b);
+    check("mesh 7: Y → X send_message(meta) after the outage", !s7a.isError && r7a.includes(m7a), s7a.isError ? s7a.text : r7a.split("\n")[0]);
+    check("mesh 7: X → Y send_message(meta) after the outage", !s7b.isError && r7b.includes(m7b), s7b.isError ? s7b.text : r7b.split("\n")[0]);
+    let l7 = { text: "" };
+    for (let i = 0; i < 25 && !l7.text.includes("Name: mesh-x"); i++) {
+      l7 = await Y.tool("list_peers", { protocol: MESH_PROTO });
+      if (!l7.text.includes("Name: mesh-x")) await sleep(200);
+    }
+    check("mesh 7: list_peers(protocol) still shows X (declaration re-sent on the new broker)", l7.text.includes("Name: mesh-x") && l7.text.includes(`Protocol: ${MESH_PROTO}@1.0.0`), l7.text.split("\n").slice(0, 2).join(" | "));
+
+    // 8. a broker with another token is never a member
+    C = await startMeshBroker("mesh-c", pc, dc, "another-token", targets);
+    const pcPeer = (await meshPost(C.url, "another-token", "/register", { pid: process.pid, hostname: "e2e-probe-c", cwd: ROOT, name: "mesh-c-peer" })).id;
+    await sleep(3000);
+    const lb = await meshPost(B.url, TOKEN, "/list-peers", { scope: "all" });
+    const lc = await meshPost(C.url, "another-token", "/list-peers", { scope: "all" });
+    const hb = await (await fetch(`${B.url}/health`)).json();
+    check("mesh 8: B's peer list has no peer of C (token mismatch)", Array.isArray(lb) && !lb.some((p) => p.name === "mesh-c-peer"), `B peers: ${Array.isArray(lb) ? lb.map((p) => p.name).join(",") : "?"}; health.peers=${hb.peers}`);
+    check("mesh 8: C's peer list has none of A/B's peers", Array.isArray(lc) && lc.every((p) => p.name === "mesh-c-peer"), `C peers: ${Array.isArray(lc) ? lc.map((p) => p.name).join(",") : "?"}`);
+    check("mesh 8: B logged the token mismatch once", (B.stderr().match(/mesh: ignoring mesh-c@127\.0\.0\.1 \(token mismatch\)/g) ?? []).length === 1, B.stderr().match(/mesh: ignoring[^\n]*/g)?.join(" | ") ?? "(no log)");
+    void pcPeer;
+  } finally {
+    for (const m of opened) {
+      const code = await m.close();
+      check(`${m.label}: stdin close → exit 0`, code === 0, `exit=${code}`);
+    }
+    for (const br of [A, B, C]) {
+      if (!br || br.proc.exitCode !== null) continue;
+      br.proc.kill("SIGTERM");
+      const code = await br.exited;
+      check(`mesh: broker ${br.id} SIGTERM → exit 0`, code === 0, `exit=${code}`);
+    }
+    void probe;
+  }
 }
 
 // ---------------------------------------------------------------- session socket
@@ -683,6 +844,9 @@ async function main() {
       check(`${m.label}: stdin close → unregister → exit 0`, code === 0 && /Unregistered from broker/.test(m.stderr), `exit=${code}`);
     }
   }
+
+  // mesh scenario (broker autonomy)
+  if (!REMOTE_HOST) await meshFlow(registry.url, pkgs);
 
   // 6. `agent-messenger broker` through the mock registry (extra port; skipped when it already is the broker)
   if (brokerMode !== "cli" && !REMOTE_HOST) {
