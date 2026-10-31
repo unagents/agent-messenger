@@ -46,7 +46,16 @@ AGENT_MESSENGER_BIND=0.0.0.0 AGENT_MESSENGER_PORT=7901 \
 
 確認: `curl http://192.168.1.202:7901/health` → `{"status":"ok","version":"…","peers":N}`
 
-### 2. 各ホストで Claude Code に MCP 登録（user scope = 全セッション共通）
+### 2. 各ホストで Claude Code に導入（user scope = 全セッション共通）
+
+plugin を入れる（推奨）。MCP サーバー `agent-messenger` と使い方の skill が入る。版は npm パッケージと同じ（`plugins/messenger/`）。
+
+```bash
+claude plugin marketplace add unagents/agent-messenger
+claude plugin install messenger@agent-messenger
+```
+
+plugin を使わず MCP だけ直接登録する場合（plugin と両方入れると二重起動になる）:
 
 ```bash
 claude mcp add --scope user --transport stdio agent-messenger \

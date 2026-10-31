@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "agent-messenger": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@unagents/messenger@0.11.1",
+        "mcp"
+      ],
+      "env": {
+        "AGENT_MESSENGER_CLIENT_SPEC": "0.11.1"
+      }
+    }
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "name": "agent-messenger",
+  "owner": { "name": "unagents" },
+  "description": "agent-messenger: messaging between Claude Code sessions",
+  "plugins": [
+    {
+      "name": "messenger",
+      "source": "./plugins/messenger",
+      "description": "agent-messenger MCP server and skill for messaging between Claude Code sessions"
+    }
+  ]
+}
