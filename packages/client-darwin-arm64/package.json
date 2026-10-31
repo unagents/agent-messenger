@@ -1,6 +1,6 @@
 {
   "name": "@unagents/messenger-client-darwin-arm64",
-  "version": "0.11.0",
+  "version": "0.11.1",
   "description": "agent-messenger client, native darwin-arm64 build (PerryTS). Selected by @unagents/messenger over the node client when installable.",
   "license": "MIT",
   "repository": {
