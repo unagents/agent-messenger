@@ -344,6 +344,7 @@ export function createMessengerClient(options: MessengerClientOptions = {}): Mes
 
   async function sendMode(to: string, text: string, mode: "pull" | "push" | "ping", meta?: MessageMeta): Promise<SendResult> {
     const id = requireRegistered();
+    if (mode === "ping" && typeof text !== "string") throw new Error(`ping subject must be a string (got ${typeof text})`);
     const plan = mode === "ping" ? { text, meta, warning: undefined } : planOutgoing(protocols, to, text, meta);
     const r = await broker.post("/send-message", {
       from_id: id,

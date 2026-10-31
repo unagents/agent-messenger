@@ -253,11 +253,21 @@ export interface OutgoingPlan {
 }
 
 /**
+ * A pull / push message body must be a non-empty string. Throws otherwise, so nothing reaches the broker
+ * (a missing body used to go out as the text "undefined", issue #2). Ping text is not a body: it may be "".
+ */
+export function checkBody(text: unknown): void {
+  if (typeof text !== "string") throw new Error(`message body must be a string (got ${text === null ? "null" : typeof text})`);
+  if (text === "") throw new Error("message body must not be empty");
+}
+
+/**
  * What to send to `to` (peer id or name). When that peer's latest message spoke another version of a protocol this
  * peer serves, the text starts with a warning line and `meta` carries this peer's version (design 6.4).
  * A `meta` the caller gave for a different protocol is left alone.
  */
 export function planOutgoing(state: ProtocolState, to: string, text: string, meta?: MessageMeta): OutgoingPlan {
+  checkBody(text);
   for (let i = state.seen.length - 1; i >= 0; i--) {
     const s = state.seen[i];
     if (s.peerId !== to && (s.peerName === "" || s.peerName !== to)) continue;

@@ -67,6 +67,9 @@ export interface HandlerOptions {
 }
 
 /** Route handlers over a `BrokerState`. Logic is transcribed 1:1 from `legacy/src/broker.js`; fallback relay and mesh methods are additions. */
+/** A request the broker refuses as malformed: answered with HTTP 400 (other thrown errors are 500). */
+export class BadRequestError extends Error {}
+
 export class BrokerHandlers {
   private readonly recentMeshKeys = new Set<string>();
   /** Mesh protocol conflicts already logged (`name@version:hash`), so a standing conflict warns once, not every round. */
@@ -298,6 +301,10 @@ export class BrokerHandlers {
   }
 
   sendMessage(body: SendMessageRequest): SendMessageResponse {
+    // a body-less message is never queued (issue #2: an old client sent a missing body as "undefined"); ping text may be empty
+    const rawText: unknown = body.text;
+    if (rawText !== undefined && typeof rawText !== "string") throw new BadRequestError("invalid text: expected a string");
+    if (body.mode !== "ping" && (rawText === undefined || rawText === "")) throw new BadRequestError("invalid text: expected a non-empty string");
     const resolved = this.resolvePeer(body.to);
     if (resolved.error !== undefined) return { ok: false, error: resolved.error };
     const { peer } = resolved;

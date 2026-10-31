@@ -1,6 +1,7 @@
 import { createProtocolState } from "../protocols.js";
 import { VERSION } from "../version.js";
 import { TOOL_DEFS } from "./defs.js";
+import { validateArgs } from "./validate.js";
 import type { ToolContext, ToolDef, ToolDescriptor, ToolRegistry, ToolResult } from "./types.js";
 
 function text(t: string, isError = false): ToolResult {
@@ -38,6 +39,8 @@ export function createToolRegistry(
       const def = defs.find((d) => d.name === name);
       if (!ctx.peer.id && (def === undefined || def.requiresRegistration)) return text("Not registered with broker yet", true);
       if (def === undefined) return text(`Unknown tool: ${name}`, true);
+      const invalid = validateArgs(def.inputSchema, args ?? {});
+      if (invalid !== null) return text(invalid, true);
       try {
         return await def.handler(args ?? {}, ctx);
       } catch (e) {

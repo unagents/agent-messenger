@@ -11,6 +11,7 @@ import {
 } from "h3";
 import type { BrokerErrorResponse, BrokerPostRoute, HealthResponse, ProtocolRoute, RelayMessagesRequest } from "@unagents/messenger-protocol";
 import { BROKER_POST_ROUTES, HEALTH_ROUTE, MESH_SYNC_ROUTE, PROTOCOL_ROUTES, RELAY_ROUTE } from "@unagents/messenger-protocol";
+import { BadRequestError } from "./handlers.js";
 import type { BrokerHandlers } from "./handlers.js";
 
 export interface HttpAppOptions {
@@ -33,7 +34,7 @@ export interface HttpAppOptions {
  * - any other non-POST → `200 text/plain "agent-messenger broker <version>\n"`
  * - POST without a matching bearer token (when one is set) → `401 {error:"unauthorized"}`
  * - POST to an unknown path → `404 {error:"not found"}`
- * - empty body = `{}`; invalid JSON or a throwing handler → `500 {error:<message>}`
+ * - empty body = `{}`; a malformed send (`BadRequestError`) → `400 {error:<message>}`; invalid JSON or a throwing handler → `500 {error:<message>}`
  */
 export function createBrokerApp(opts: HttpAppOptions): App {
   const routes = opts.handlers.routes();
@@ -56,7 +57,7 @@ export function createBrokerApp(opts: HttpAppOptions): App {
       try {
         return run(await readJson(event));
       } catch (e) {
-        setResponseStatus(event, 500);
+        setResponseStatus(event, e instanceof BadRequestError ? 400 : 500);
         return { error: (e as Error).message } satisfies BrokerErrorResponse;
       }
     }));
