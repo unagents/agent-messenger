@@ -47,6 +47,37 @@ afterEach(async () => {
   while (dirs.length) rmSync(dirs.pop()!, { recursive: true, force: true });
 });
 
+describe("send-message body check (issue #2)", () => {
+  test("a pull / push message without a string, non-empty text is refused with 400 and not queued", async () => {
+    const { url, post } = await boot();
+    const a = await post("/register", { pid: 1, hostname: "hostA", cwd: "/a", name: "alpha" });
+    const send = async (body: Record<string, unknown>) => {
+      const res = await fetch(`${url}/send-message`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${TOKEN}` },
+        body: JSON.stringify({ from_id: "cli", to: "alpha", ...body }),
+      });
+      return { status: res.status, body: (await res.json()) as any };
+    };
+    for (const bad of [{}, { text: null }, { text: 5 }, { text: { a: 1 } }, { text: [] }, { text: "" }, { text: "", mode: "push" }, { text: 5, mode: "ping" }]) {
+      const r = await send(bad);
+      expect(r.status, JSON.stringify(bad)).toBe(400);
+      expect(r.body.error).toMatch(/^invalid text: expected a/);
+    }
+    expect((await post("/poll-messages", { id: a.id })).messages).toEqual([]);
+  });
+
+  test("ping may carry an empty or missing text, a normal text is still queued", async () => {
+    const { post } = await boot();
+    const a = await post("/register", { pid: 1, hostname: "hostA", cwd: "/a", name: "alpha" });
+    expect((await post("/send-message", { from_id: "cli", to: "alpha", text: "", mode: "ping" })).ok).toBe(true);
+    expect((await post("/send-message", { from_id: "cli", to: "alpha", mode: "ping" })).ok).toBe(true);
+    expect((await post("/send-message", { from_id: "cli", to: "alpha", text: "hi" })).ok).toBe(true);
+    const polled = await post("/poll-messages", { id: a.id });
+    expect(polled.messages.map((m: { mode: string; text: string }) => [m.mode, m.text])).toEqual([["ping", ""], ["ping", ""], ["pull", "hi"]]);
+  });
+});
+
 describe("http", () => {
   test("GET /health has the current shape", async () => {
     const { b, url } = await boot();

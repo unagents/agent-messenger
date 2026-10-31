@@ -195,6 +195,18 @@ describe("createMessengerClient", () => {
     await expect(a.send("nobody-here", "x")).rejects.toThrow(/^Failed to send:/);
   });
 
+  it("send() / ping(): a body that is not a non-empty string is refused and nothing is queued (issue #2)", async () => {
+    for (const bad of [undefined, null, 5, {}, ""]) {
+      await expect(a.send("fake-b", bad as never)).rejects.toThrow(/^message body must (be a string|not be empty)/);
+    }
+    await expect(a.ping("fake-b", 5 as never)).rejects.toThrow("ping subject must be a string");
+    const polled = await raw<{ messages: { text: string }[] }>("/poll-messages", { id: fakeB });
+    expect(polled.messages).toEqual([]);
+    await a.ping("fake-b");
+    const ping = await raw<{ messages: { text: string; mode: string }[] }>("/poll-messages", { id: fakeB });
+    expect(ping.messages.map((m) => [m.mode, m.text])).toEqual([["ping", ""]]);
+  });
+
   it("onMessage(): handler gets the message, then it is acknowledged", async () => {
     const got: InboundMessage[] = [];
     const off = a.onMessage((m) => {
