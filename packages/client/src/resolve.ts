@@ -1,5 +1,4 @@
 import { createSocket } from "node:dgram";
-import { readFileSync } from "node:fs";
 import { networkInterfaces } from "node:os";
 import type { DiscoveryReply } from "@unagents/messenger-protocol";
 import { DEFAULT_HTTP_PORT, DISCOVERY_BROADCAST_ADDR, DISCOVERY_KEY, DISCOVERY_PROBE_VALUE, DISCOVERY_REPLY_VALUE } from "./constants.js";
@@ -15,9 +14,9 @@ export type BrokerKind = "env" | "saved" | "discovery" | "fallback" | "set_broke
 export interface ResolvedBroker {
   url: string;
   host: string;
-  /** `"env"` / `"set_broker"` / `"saved <file>"` / `"config <file>"` / `"config (options)"` / `"discovery (<id>)"` / `"local fallback"` (log text) */
+  /** `"env"` / `"set_broker"` / `"saved <file>"` / `"config (options)"` / `"discovery (<id>)"` / `"local fallback"` (log text) */
   source: string;
-  /** Same thing as a fixed word: `env` / `saved` (client.json, legacy config.json, `options.brokers`) / `discovery` / `fallback` / `set_broker`. */
+  /** Same thing as a fixed word: `env` / `saved` (client.json, `options.brokers`) / `discovery` / `fallback` / `set_broker`. */
   kind: BrokerKind;
   isLocal: boolean;
 }
@@ -36,15 +35,12 @@ export interface DiscoveredBroker {
 
 export type Logger = (msg: string) => void;
 
-/** `config.json brokers` deprecation is logged once per file and process. */
-const warnedLegacyConfig = new Set<string>();
-
 /**
  * Find the broker and set the client URL.
  *
  *   0. pin      `set_broker(url)` for this session (`pin`)
  *   1. env      AGENT_MESSENGER_HOST (+PORT)
- *   2. saved    `client.json` broker, then (legacy) `config.json` `brokers` / `options.brokers`; first reachable
+ *   2. saved    `client.json` broker, then `options.brokers` (library option); first reachable
  *   3. discover UDP probe: a real broker beats a fallback, a mesh broker beats a non-mesh one
  *   4. local    127.0.0.1:PORT (caller may auto-launch)
  */
@@ -72,7 +68,7 @@ export async function resolveBroker(
     return done({ url, host: cfg.host, source: "env", kind: "env", isLocal: isLocalHost(cfg.host) });
   }
 
-  // 2. saved: client.json, then the legacy config file (or the library option)
+  // 2. saved: client.json, then the library option
   const saved = readSavedBroker(cfg);
   const candidates: { url: string; source: string }[] = [];
   if (saved) {
@@ -82,17 +78,9 @@ export async function resolveBroker(
       log(`saved broker is not a valid URL: ${saved}`);
     }
   }
-  if (brokers === undefined) {
-    for (const url of readConfigBrokers(cfg)) candidates.push({ url, source: `config ${cfg.configFile}` });
-  } else {
-    for (const s of brokers) candidates.push({ url: normalizeBrokerUrl(s, cfg.port), source: "config (options)" });
-  }
+  for (const s of brokers ?? []) candidates.push({ url: normalizeBrokerUrl(s, cfg.port), source: "config (options)" });
   for (const c of candidates) {
     if (await broker.health(c.url, 1500)) {
-      if (c.source.startsWith("config ") && c.source !== "config (options)" && !warnedLegacyConfig.has(cfg.configFile)) {
-        warnedLegacyConfig.add(cfg.configFile);
-        log("config.json brokers is deprecated; use set_broker(url, persist: true)");
-      }
       const host = hostOf(c.url);
       return done({ url: c.url, host, source: c.source, kind: "saved", isLocal: isLocalHost(host) });
     }
@@ -120,21 +108,6 @@ function hostOf(url: string): string {
     return new URL(url).hostname;
   } catch {
     return url;
-  }
-}
-
-/** ~/.agent-messenger/config.json → ["http://host:port", ...] */
-export function readConfigBrokers(cfg: ClientConfig): string[] {
-  try {
-    const parsed = JSON.parse(readFileSync(cfg.configFile, "utf8")) as { brokers?: unknown; broker?: unknown };
-    const list: unknown[] = Array.isArray(parsed.brokers) ? parsed.brokers : parsed.broker ? [parsed.broker] : [];
-    const out: string[] = [];
-    for (const s of list) {
-      if (typeof s === "string" && s.trim()) out.push(normalizeBrokerUrl(s, cfg.port));
-    }
-    return out;
-  } catch {
-    return [];
   }
 }
 

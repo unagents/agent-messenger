@@ -1,6 +1,6 @@
 /**
  * Resolution order without any socket: a stub broker client says which URLs are healthy.
- * pin > env > saved (client.json, then legacy config.json / options.brokers) > discovery > local.
+ * pin > env > saved (client.json, then options.brokers) > discovery > local.
  */
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -22,7 +22,6 @@ function setup(env: Record<string, string> = {}, healthy: string[] = []) {
   dirs.push(dir);
   const cfg = loadConfig({
     AGENT_MESSENGER_DISCOVERY: "off",
-    AGENT_MESSENGER_CONFIG: join(dir, "config.json"),
     AGENT_MESSENGER_CLIENT_STATE: join(dir, "client.json"),
     ...env,
   });
@@ -57,33 +56,18 @@ describe("resolveBroker order", () => {
     expect(r).toMatchObject({ url: "http://10.0.0.9:7901", kind: "env", source: "env" });
   });
 
-  it("client.json is used before the legacy config.json (kind saved)", async () => {
-    const s = setup({}, ["http://10.0.0.7:7901", "http://10.0.0.8:7901"]);
+  it("client.json is used (kind saved)", async () => {
+    const s = setup({}, ["http://10.0.0.7:7901"]);
     writeSavedBroker(s.cfg, "http://10.0.0.7:7901");
-    writeFileSync(s.cfg.configFile, JSON.stringify({ brokers: ["10.0.0.8"] }));
     const r = await resolveBroker(s.cfg, s.broker, s.log);
     expect(r).toMatchObject({ url: "http://10.0.0.7:7901", kind: "saved" });
     expect(r.source).toBe(`saved ${s.cfg.clientFile}`);
-    expect(s.logs.join("\n")).not.toMatch(/deprecated/);
   });
 
-  it("an unreachable saved broker falls through to the legacy config, which logs the deprecation once", async () => {
-    const s = setup({}, ["http://10.0.0.8:7901"]);
-    writeSavedBroker(s.cfg, "http://10.0.0.7:7901");
-    writeFileSync(s.cfg.configFile, JSON.stringify({ brokers: ["10.0.0.8"] }));
-    const r = await resolveBroker(s.cfg, s.broker, s.log);
-    expect(r).toMatchObject({ url: "http://10.0.0.8:7901", kind: "saved", source: `config ${s.cfg.configFile}` });
-    expect(s.logs).toContain("saved broker not reachable: http://10.0.0.7:7901");
-    expect(s.logs.filter((l) => l.includes("config.json brokers is deprecated; use set_broker(url, persist: true)"))).toHaveLength(1);
-    await resolveBroker(s.cfg, s.broker, s.log);
-    expect(s.logs.filter((l) => l.includes("deprecated"))).toHaveLength(1);
-  });
-
-  it("options.brokers behave like a saved broker, without the deprecation", async () => {
+  it("options.brokers behave like a saved broker", async () => {
     const s = setup({}, ["http://10.0.0.3:7901"]);
     const r = await resolveBroker(s.cfg, s.broker, s.log, ["10.0.0.4", "10.0.0.3"]);
     expect(r).toMatchObject({ url: "http://10.0.0.3:7901", kind: "saved", source: "config (options)" });
-    expect(s.logs.join("\n")).not.toMatch(/deprecated/);
   });
 
   it("nothing reachable and discovery off: local fallback (kind fallback)", async () => {

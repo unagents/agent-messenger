@@ -115,7 +115,6 @@ async function start(brokers: FakeBroker[], env: Record<string, string> = {}, op
   const logs: string[] = [];
   const cfg = loadConfig({
     AGENT_MESSENGER_DISCOVERY: "off",
-    AGENT_MESSENGER_CONFIG: join(dir, "config.json"),
     AGENT_MESSENGER_CLIENT_STATE: join(dir, "client.json"),
     AGENT_MESSENGER_GRACE_MS: "300",
     ...env,
@@ -251,7 +250,7 @@ describe("setBroker", () => {
     const [a, b] = [A(), B()];
     const dir = mkdtempSync(join(tmpdir(), "am-setbroker-"));
     dirs.push(dir);
-    const cfg = loadConfig({ AGENT_MESSENGER_DISCOVERY: "off", AGENT_MESSENGER_HOST: "10.0.0.1", AGENT_MESSENGER_CONFIG: join(dir, "c.json"), AGENT_MESSENGER_CLIENT_STATE: join(dir, "s.json") });
+    const cfg = loadConfig({ AGENT_MESSENGER_DISCOVERY: "off", AGENT_MESSENGER_HOST: "10.0.0.1", AGENT_MESSENGER_CLIENT_STATE: join(dir, "s.json") });
     const client = createMessengerClient({ config: cfg, log: () => {}, name: "alice", brokerClient: netClient([a, b]) });
     clients.push(client);
     await client.setBroker(b.url);
@@ -285,7 +284,7 @@ describe("unread notices after a switch", () => {
     const notices: { latest: string; count: number }[] = [];
     const dir = mkdtempSync(join(tmpdir(), "am-setbroker-"));
     dirs.push(dir);
-    const cfg = loadConfig({ AGENT_MESSENGER_DISCOVERY: "off", AGENT_MESSENGER_HOST: "10.0.0.1", AGENT_MESSENGER_CONFIG: join(dir, "c.json"), AGENT_MESSENGER_CLIENT_STATE: join(dir, "s.json") });
+    const cfg = loadConfig({ AGENT_MESSENGER_DISCOVERY: "off", AGENT_MESSENGER_HOST: "10.0.0.1", AGENT_MESSENGER_CLIENT_STATE: join(dir, "s.json") });
     const notifier = {
       unread: async (latest: { text: string }, count: number) => (notices.push({ latest: latest.text, count }), true),
       ping: async () => {},

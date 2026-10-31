@@ -106,7 +106,6 @@ function libEnv(p: number, name: string): Record<string, string | undefined> {
     AGENT_MESSENGER_PORT: String(p),
     AGENT_MESSENGER_TOKEN: TOKEN,
     AGENT_MESSENGER_DISCOVERY: "off",
-    AGENT_MESSENGER_CONFIG: join(dir, "no-config.json"),
     AGENT_MESSENGER_NAME: name,
   };
 }
@@ -136,7 +135,6 @@ beforeAll(async () => {
     AGENT_MESSENGER_TOKEN: TOKEN,
     AGENT_MESSENGER_STATE: join(dir, "broker.json"),
     AGENT_MESSENGER_DISCOVERY: "off",
-    AGENT_MESSENGER_CONFIG: join(dir, "no-config.json"),
   });
   const reg = await raw<{ id: string }>("/register", {
     pid: 99999,

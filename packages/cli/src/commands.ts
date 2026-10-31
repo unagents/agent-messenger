@@ -125,8 +125,6 @@ export async function runSend(cfg: LoaderConfig, rawArgs: string[]): Promise<voi
 
 export async function runDiscover(cfg: LoaderConfig): Promise<void> {
   const s = await session(cfg);
-  const configured = s.mod.readConfigBrokers(s.cfg);
-  console.log(`config file: ${s.cfg.configFile} → ${configured.length ? configured.join(", ") : "(none)"}`);
   const found = await s.mod.discoverBrokers(s.cfg);
   console.log(`discovery: ${found.length} broker(s) answered`);
   for (const b of found) console.log(`  ${b.id}  ${b.url}  v${b.version}`);

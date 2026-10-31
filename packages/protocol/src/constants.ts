@@ -49,7 +49,7 @@ export const ENV = {
   BROKER_ID: "AGENT_MESSENGER_BROKER_ID",
   /** Broker state file (default `~/.agent-messenger/broker.json`). */
   STATE: "AGENT_MESSENGER_STATE",
-  /** Client config file (default `~/.agent-messenger/config.json`). */
+  /** Legacy client config file. Names mirror `legacy/src/config.js`; no longer read since 0.12.0. */
   CONFIG: "AGENT_MESSENGER_CONFIG",
   /** `"off"` disables UDP discovery (broker responder and client probe). */
   DISCOVERY: "AGENT_MESSENGER_DISCOVERY",

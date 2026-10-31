@@ -62,7 +62,6 @@ function envFor(p: number, name: string, extra: Record<string, string> = {}): Re
     AGENT_MESSENGER_PORT: String(p),
     AGENT_MESSENGER_TOKEN: TOKEN,
     AGENT_MESSENGER_DISCOVERY: "off",
-    AGENT_MESSENGER_CONFIG: join(dir, "no-config.json"),
     AGENT_MESSENGER_NAME: name,
     ...extra,
   };
@@ -77,7 +76,6 @@ function brokerEnv(p: number, state: string): Record<string, string | undefined>
     AGENT_MESSENGER_TOKEN: TOKEN,
     AGENT_MESSENGER_STATE: state,
     AGENT_MESSENGER_DISCOVERY: "off",
-    AGENT_MESSENGER_CONFIG: join(dir, "no-config.json"),
   };
 }
 

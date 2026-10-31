@@ -8,7 +8,7 @@ export * from "./constants.js";
 export type { ClientConfig, DeliveryMode, Env } from "./config.js";
 export { createBrokerClient } from "./broker.js";
 export type { BrokerClient } from "./broker.js";
-export { resolveBroker, discoverBrokers, readConfigBrokers, normalizeBrokerUrl, rankBrokers } from "./resolve.js";
+export { resolveBroker, discoverBrokers, normalizeBrokerUrl, rankBrokers } from "./resolve.js";
 export type { ResolvedBroker, DiscoveredBroker, BrokerKind, Logger } from "./resolve.js";
 export { readSavedBroker, writeSavedBroker } from "./saved-broker.js";
 export { postToSession } from "./session.js";

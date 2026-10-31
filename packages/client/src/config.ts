@@ -34,8 +34,6 @@ export interface ClientConfig {
   token: string;
   name: string;
   stateDir: string;
-  /** Legacy client config (`config.json`, `brokers`): still read as a saved broker, deprecated (removed in 0.12.0). */
-  configFile: string;
   /** Saved broker (`client.json`, `AGENT_MESSENGER_CLIENT_STATE`), written by `set_broker(url, persist: true)`. */
   clientFile: string;
   /** Explicit discovery send targets (`host:port`, `AGENT_MESSENGER_DISCOVERY_TARGETS`); empty = broadcast. */
@@ -63,7 +61,6 @@ export function loadConfig(env: Env): ClientConfig {
     token: env[ENV.TOKEN] ?? "",
     name: env[ENV.NAME] ?? "",
     stateDir,
-    configFile: env[ENV.CONFIG] ?? join(stateDir, "config.json"),
     clientFile: env[CLIENT_STATE_ENV] ?? join(stateDir, "client.json"),
     discoveryTargets: (env[DISCOVERY_TARGETS_ENV] ?? "").split(",").map((s) => s.trim()).filter((s) => s !== ""),
     discoveryEnabled: (env[ENV.DISCOVERY] ?? "on").toLowerCase() !== "off",

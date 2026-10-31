@@ -273,7 +273,6 @@ describe("status / peers / send / discover (real client package, TypeScript brok
       AGENT_MESSENGER_CLIENT: "node",
       AGENT_MESSENGER_HOST: "127.0.0.1",
       AGENT_MESSENGER_PORT: String(broker.port),
-      AGENT_MESSENGER_CONFIG: join(state, "no-config.json"),
       // keep discovery probes on loopback (never the LAN)
       AGENT_MESSENGER_DISCOVERY_ADDR: "127.0.0.1",
       AGENT_MESSENGER_DISCOVERY_PORT: String(broker.port + 1),
@@ -313,7 +312,6 @@ describe("status / peers / send / discover (real client package, TypeScript brok
   it("discover", async () => {
     const r = await runCli(["discover"], env);
     expect(r.status, r.stderr).toBe(0);
-    expect(r.stdout).toMatch(/^config file: .*no-config\.json → \(none\)$/m);
     expect(r.stdout).toMatch(/^discovery: 0 broker\(s\) answered$/m);
     expect(r.stdout).toMatch(new RegExp(`^resolved: http://127\\.0\\.0\\.1:${broker.port} \\(via env\\)$`, "m"));
   });

@@ -26,7 +26,6 @@ describe("resolve", () => {
       AGENT_MESSENGER_BIND: "127.0.0.1",
       AGENT_MESSENGER_STATE: join(dir, "b.json"),
       AGENT_MESSENGER_DISCOVERY: "off",
-      AGENT_MESSENGER_CONFIG: join(dir, "missing.json"),
     };
     const broker = await startBroker(env);
     try {
@@ -40,25 +39,24 @@ describe("resolve", () => {
     }
   });
 
-  it("config file brokers list is used when no env (source config)", async () => {
+  it("saved broker (client.json) is used when no env (source saved)", async () => {
     const dir = mkdtempSync(join(tmpdir(), "am-resolve-"));
     const port = String(18600 + Math.floor(Math.random() * 500));
-    const cfg = join(dir, "config.json");
-    writeFileSync(cfg, JSON.stringify({ brokers: [`http://127.0.0.1:${Number(port) + 1}`, `127.0.0.1:${port}`] }));
+    const cfg = join(dir, "client.json");
+    writeFileSync(cfg, JSON.stringify({ broker: `http://127.0.0.1:${port}` }));
     const env = {
       ...base,
       AGENT_MESSENGER_PORT: port,
       AGENT_MESSENGER_BIND: "127.0.0.1",
       AGENT_MESSENGER_STATE: join(dir, "b.json"),
       AGENT_MESSENGER_DISCOVERY: "off",
-      AGENT_MESSENGER_CONFIG: cfg,
+      AGENT_MESSENGER_CLIENT_STATE: cfg,
     };
     const broker = await startBroker(env);
     try {
       const c = await startAndCapture(env);
       const err = c.stderrText();
-      expect(err).toMatch(new RegExp(`broker=http://127\\.0\\.0\\.1:${port} \\(local, via config ${cfg.replace(/[.\\/]/g, "\\$&")}\\)`));
-      expect(err).toMatch(/config broker not reachable/); // the first, dead entry was skipped
+      expect(err).toMatch(new RegExp(`broker=http://127\\.0\\.0\\.1:${port} \\(local, via saved ${cfg.replace(/[.\\/]/g, "\\$&")}\\)`));
       await c.close();
     } finally {
       broker.kill("SIGTERM");
@@ -75,7 +73,6 @@ describe("resolve", () => {
       AGENT_MESSENGER_PORT: port,
       AGENT_MESSENGER_BIND: "127.0.0.1",
       AGENT_MESSENGER_STATE: join(dir, "b.json"),
-      AGENT_MESSENGER_CONFIG: join(dir, "missing.json"),
       AGENT_MESSENGER_BROKER_ID: "test-broker",
       AGENT_MESSENGER_DISCOVERY_PORT: dport,
       AGENT_MESSENGER_DISCOVERY_ADDR: "127.0.0.1",
@@ -109,7 +106,6 @@ describe("resolve", () => {
       AGENT_MESSENGER_PORT: port,
       AGENT_MESSENGER_BIND: "127.0.0.1",
       AGENT_MESSENGER_STATE: join(dir, "b.json"),
-      AGENT_MESSENGER_CONFIG: join(dir, "missing.json"),
       AGENT_MESSENGER_DISCOVERY_PORT: "19998",
       AGENT_MESSENGER_DISCOVERY_ADDR: "127.0.0.1",
       AGENT_MESSENGER_DISCOVERY_TIMEOUT_MS: "300",

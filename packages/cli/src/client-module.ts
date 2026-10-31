@@ -10,7 +10,6 @@ import { resolveEntry } from "./pkgs.js";
 
 export interface ClientConfigLike {
   token: string;
-  configFile: string;
 }
 
 export interface BrokerClientLike {
@@ -36,7 +35,6 @@ export interface ClientModule {
   createBrokerClient(token: string): BrokerClientLike;
   resolveBroker(cfg: ClientConfigLike, broker: BrokerClientLike, log: (msg: string) => void): Promise<ResolvedBrokerLike>;
   discoverBrokers(cfg: ClientConfigLike): Promise<DiscoveredBrokerLike[]>;
-  readConfigBrokers(cfg: ClientConfigLike): string[];
 }
 
 export async function loadClientModule(pkgDir: string): Promise<ClientModule> {

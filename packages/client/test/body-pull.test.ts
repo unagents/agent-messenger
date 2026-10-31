@@ -24,7 +24,6 @@ const env = {
   AGENT_MESSENGER_TOKEN: TOKEN,
   AGENT_MESSENGER_STATE: join(dir, "broker.json"),
   AGENT_MESSENGER_DISCOVERY: "off",
-  AGENT_MESSENGER_CONFIG: join(dir, "no-config.json"),
 };
 
 let broker: ChildProcess;

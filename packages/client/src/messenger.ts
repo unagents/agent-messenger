@@ -6,6 +6,7 @@ import type { BrokerInfo } from "./broker-info.js";
 import type { BrokerClient } from "./broker.js";
 import { DEFAULT_HTTP_PORT, FALLBACK_ENV, RESOLVE_RETRY_MS } from "./constants.js";
 import { isLocalHost, loadConfig } from "./config.js";
+import { noticeLegacyConfig } from "./legacy-config.js";
 import type { ClientConfig, Env } from "./config.js";
 import { createInbox } from "./inbox.js";
 import type { InboundMessage, MessageHandler, Notifier } from "./inbox.js";
@@ -48,7 +49,7 @@ export interface MessengerClientOptions {
   name?: string;
   /** Initial peer summary (default empty). */
   summary?: string;
-  /** Broker URLs to try instead of the config file's `brokers` (second step of the resolution order). */
+  /** Broker URLs to try after the saved broker (`client.json`) and before discovery. */
   brokers?: string[];
   /** Spawn a local broker when none is running (default false; startClient passes true). */
   autoStartBroker?: boolean;
@@ -147,6 +148,7 @@ export function createMessengerClient(options: MessengerClientOptions = {}): Mes
   const env: Env = options.env ?? (process.env as Env);
   const log: Logger = options.log ?? ((msg: string) => console.error(`[agent-messenger] ${msg}`));
   const cfg: ClientConfig = options.config ?? loadConfig(env);
+  noticeLegacyConfig(cfg.stateDir, log);
   const autoStart = options.autoStartBroker === true;
   const notifier = options.notifier;
   const broker = options.brokerClient ?? createBrokerClient(cfg.token);
@@ -177,7 +179,7 @@ export function createMessengerClient(options: MessengerClientOptions = {}): Mes
   //
   // A failed poll / heartbeat starts a grace period in which the previous URL keeps being retried (the
   // poll loop does that every second), so a flapping broker does not push the session into a local
-  // fallback. When the grace is over the full resolution (env → config → discovery → local) runs again.
+  // fallback. When the grace is over the full resolution (env → saved → discovery → local) runs again.
   // A heartbeat the broker rejects (it forgot us) re-runs the resolution at once.
   let failSince: number | null = null;
   let lastResolveAttempt = 0;

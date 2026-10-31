@@ -1,10 +1,10 @@
 /**
  * Client re-resolve: connection failure -> grace period on the previous URL -> full resolution again
- * (env, config, UDP discovery, local fallback spawn); fallback broker hands over and exits; a second outage
+ * (env, saved, UDP discovery, local fallback spawn); fallback broker hands over and exits; a second outage
  * repeats the whole thing.
  *
  * Isolation: every broker and client here binds / probes 127.0.0.1 only (HTTP 17911 "original", 17913 local
- * fallback, discovery 17912 pinned to 127.0.0.1) and uses temp config / state files, so nothing reaches the LAN.
+ * fallback, discovery 17912 pinned to 127.0.0.1) and uses temp saved-broker / state files, so nothing reaches the LAN.
  */
 import type { ChildProcess } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -48,8 +48,8 @@ function stop(p: ChildProcess): Promise<void> {
 
 function setup() {
   const dir = mkdtempSync(join(tmpdir(), "am-reresolve-"));
-  const config = join(dir, "config.json");
-  writeFileSync(config, JSON.stringify({ brokers: [`http://127.0.0.1:${ORIGINAL}`] }));
+  const saved = join(dir, "client.json");
+  writeFileSync(saved, JSON.stringify({ broker: `http://127.0.0.1:${ORIGINAL}` }));
   // wrapper: record the pid of every spawned (detached) fallback broker so the test can stop it
   const pidFile = join(dir, "fallback.pid");
   const wrapper = join(dir, "broker-wrapper.mjs");
@@ -64,12 +64,12 @@ function setup() {
     AGENT_MESSENGER_BIND: "127.0.0.1",
     AGENT_MESSENGER_DISCOVERY_PORT: String(DISCOVERY),
     AGENT_MESSENGER_DISCOVERY_ADDR: "127.0.0.1",
-    AGENT_MESSENGER_CONFIG: config,
+    AGENT_MESSENGER_CLIENT_STATE: saved,
   };
   const originalEnv = { ...common, AGENT_MESSENGER_PORT: String(ORIGINAL), AGENT_MESSENGER_STATE: join(dir, "original.json"), AGENT_MESSENGER_BROKER_ID: "original" };
   const clientEnv = {
     ...common,
-    // the local fallback listens on LOCAL; the original is reached through the config file
+    // the local fallback listens on LOCAL; the original is reached through the saved broker (client.json)
     AGENT_MESSENGER_PORT: String(LOCAL),
     AGENT_MESSENGER_STATE: join(dir, "local.json"),
     AGENT_MESSENGER_BROKER_ID: "local-fallback",
@@ -115,7 +115,7 @@ describe("client re-resolve", () => {
     cleanups.push(() => stop(original));
 
     const c = await startClient(clientEnv);
-    expect(c.stderrText()).toMatch(new RegExp(`broker=http://127\\.0\\.0\\.1:${ORIGINAL} \\(local, via config`));
+    expect(c.stderrText()).toMatch(new RegExp(`broker=http://127\\.0\\.0\\.1:${ORIGINAL} \\(local, via saved`));
 
     // --- outage 1: original down. Grace first, then a local fallback broker.
     const t0 = Date.now();
@@ -187,7 +187,7 @@ describe("client re-resolve", () => {
     cleanups.push(() => stop(original));
     expect(await until(() => /Heartbeat rejected/.test(c.stderrText()), 10000)).toBe(true);
     expect(await until(() => /Re-resolving broker \(heartbeat rejected\)/.test(c.stderrText()) && count(c.stderrText(), /Registered as peer/) >= 2, 10000)).toBe(true);
-    expect(c.stderrText()).toMatch(new RegExp(`broker=http://127\\.0\\.0\\.1:${ORIGINAL} .*via config`));
+    expect(c.stderrText()).toMatch(new RegExp(`broker=http://127\\.0\\.0\\.1:${ORIGINAL} .*via saved`));
     expect(await alive(ORIGINAL)).toMatchObject({ peers: 1 });
   }, 60_000);
 });

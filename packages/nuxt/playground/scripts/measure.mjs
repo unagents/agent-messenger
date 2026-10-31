@@ -33,7 +33,6 @@ const base = {
   PATH,
   TMPDIR: join(PG_TMP, "tmp"),
   AGENT_MESSENGER_DISCOVERY: "off",
-  AGENT_MESSENGER_CONFIG: join(PG_TMP, "home", "no-config.json"),
 };
 const cliEnv = {
   ...base,
