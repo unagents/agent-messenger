@@ -479,6 +479,34 @@ async function mcpFlow(a, b, aName, bName) {
   const x2 = await exchange(b, a, aName, t2);
   check(`${b.label} → ${a.label}: send_message`, !x2.sent.isError && x2.sent.text.startsWith(`Message sent to ${aName} (`), x2.sent.text);
   check(`${a.label}: receives (check_messages / channel)`, x2.viaCheck || x2.viaChannel, x2.viaCheck ? "via check_messages" : x2.viaChannel ? `via channel push; check_messages said "${x2.checkText}"` : x2.checkText);
+
+  await missingBodyFlow(a, b, bName);
+}
+
+/**
+ * Issue #2: send_message without its required "message" (the body sent as "text") is an error and nothing is sent.
+ * Proven non-vacuously: a valid sentinel message is sent right after and is the only thing b ever receives.
+ */
+async function missingBodyFlow(a, b, bName) {
+  const channelBefore = b.notifications.filter((n) => n.method === "notifications/claude/channel").length;
+  const bad = await a.tool("send_message", { to: bName, text: "wrong argument name", delivery: "pull" });
+  check(`${a.label}: send_message without "message" is refused`, bad.isError && bad.text === 'missing required argument "message" (got: to, text, delivery)', bad.text);
+  const wrongType = await a.tool("send_message", { to: bName, message: 42 });
+  check(`${a.label}: send_message with a non-string "message" is refused`, wrongType.isError && /argument "message" must be a string/.test(wrongType.text), wrongType.text);
+  const badEnum = await a.tool("send_message", { to: bName, message: "x", delivery: "loud" });
+  check(`${a.label}: send_message with delivery outside the enum is refused`, badEnum.isError && /Invalid delivery: loud/.test(badEnum.text), badEnum.text);
+
+  const sentinel = `sentinel-issue2-${Date.now()}`;
+  const good = await a.tool("send_message", { to: bName, message: sentinel });
+  check(`${a.label}: valid send_message after the refused ones`, !good.isError && good.text.startsWith(`Message sent to ${bName} (`), good.text);
+  const got = await receiveText(b, sentinel);
+  check(`${b.label}: receives the sentinel`, got.includes(sentinel), got);
+  check(`${b.label}: the sentinel is the only message (no "undefined" body)`, !got.includes("undefined") && !/^[2-9]\d* message\(s\)/.test(got), got);
+  await sleep(500);
+  const again = await b.tool("check_messages");
+  check(`${b.label}: nothing else arrived`, !again.text.includes("undefined") && again.text.split("From ").length <= 2, again.text);
+  const channelNew = b.notifications.filter((n) => n.method === "notifications/claude/channel").slice(channelBefore);
+  check(`${b.label}: no channel push carries an "undefined" body`, channelNew.every((n) => !String(n.params?.content ?? "").includes("undefined")), JSON.stringify(channelNew.map((n) => n.params?.content)));
 }
 
 function loaderPicked(mcp) {
