@@ -20,7 +20,7 @@
  *
  * Perry's `[strip-dedup]` step needs an llvm-nm / llvm-objcopy that reads Perry's archives
  * (LLVM 23.1) on PATH. If the step does not complete, the build fails and nothing is placed
- * (see scripts/strip-dedup-check.mjs and README.md).
+ * (see scripts/strip-dedup-check.mjs and docs/development.md).
  */
 import { spawn } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -126,7 +126,7 @@ if (!dedup.ok) {
   console.error(`build-native: put an llvm-nm / llvm-objcopy that can read Perry's archives (LLVM 23.1,
   rust nightly-2026-09-21 \`llvm-tools\`) at the front of PATH and build again, e.g.
     PATH=<llvm-tools bin dir>:$PATH PERRY_HOME=... node scripts/build-native.mjs
-  How to obtain them: README.md ("ネイティブ client" section).`);
+  How to obtain them: docs/development.md ("ネイティブ client" section).`);
   process.exit(1);
 }
 

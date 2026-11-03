@@ -27,4 +27,4 @@ broker は LAN の自動発見で見つかる。接続先は `get_broker` で確
 
 ## ツール
 
-`set_name` / `set_summary` / `list_peers` / `send_message` / `send_ping` / `check_messages` / `set_protocol` / `unset_protocol` / `get_protocol` / `get_broker` / `set_broker`。詳細は [unagents/agent-messenger](https://github.com/unagents/agent-messenger) の README。
+`set_name` / `set_summary` / `list_peers` / `send_message` / `send_ping` / `check_messages` / `set_protocol` / `unset_protocol` / `get_protocol` / `get_broker` / `set_broker`。詳細は [unagents/agent-messenger](https://github.com/unagents/agent-messenger) の [docs/usage.md](https://github.com/unagents/agent-messenger/blob/master/docs/usage.md)。
