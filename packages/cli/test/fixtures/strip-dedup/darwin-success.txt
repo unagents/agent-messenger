@@ -1,0 +1,7 @@
+Linking (with stdlib)...
+[strip-dedup] libperry_ext_net.a: keeping bundled alloc-0000000000000000.alloc.0000000000000000-cgu.0.rcgu.o — needed by a kept sibling and not safely replaceable by stdlib
+[strip-dedup] libperry_ext_net.a: keeping bundled core-0000000000000000.core.0000000000000000-cgu.0.rcgu.o — needed by a kept sibling and not safely replaceable by stdlib
+[strip-dedup] libperry_ext_net.a: dropped 806 bundled member(s) also provided by stdlib (shared transitive deps, fixed-point safe)
+[strip-dedup] Processing well-known wrapper: /private/var/folders/xx/perry_strip_1/_libperry_ext_net.a_nosharedeps.lib
+[strip-dedup] _libperry_ext_net.a_nosharedeps.lib: localized wrapper-only globals in 3 member(s)
+Wrote executable: native/messenger-client-darwin-arm64

@@ -17,11 +17,16 @@
  *   packages/client-<platform>-<arch>/bin/messenger-client          copy of the executable (ignored)
  *
  * `--clean` removes packages/client/node_modules/.cache/perry first (forces a full recompile).
+ *
+ * Perry's `[strip-dedup]` step needs an llvm-nm / llvm-objcopy that reads Perry's archives
+ * (LLVM 23.1) on PATH. If the step does not complete, the build fails and nothing is placed
+ * (see scripts/strip-dedup-check.mjs and README.md).
  */
-import { spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { checkStripDedup } from "./strip-dedup-check.mjs";
 
 const ROOT = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const CLIENT_DIR = join(ROOT, "packages", "client");
@@ -72,17 +77,50 @@ mkdirSync(nativeDir, { recursive: true });
 const binary = join(nativeDir, binaryName);
 rmSync(binary, { force: true });
 console.error(`build-native: ${perry} compile src/main.ts -o native/${binaryName} (clang=${clang})`);
-const r = spawnSync(perry, ["compile", "src/main.ts", "-o", `native/${binaryName}`], {
-  cwd: CLIENT_DIR,
-  stdio: "inherit",
-  env: { ...process.env, PERRY_LLVM_CLANG: clang, PERRY_LIB_DIR: libDir },
+// Perry output is shown as it arrives and also kept (per stream) to inspect the `[strip-dedup]` lines.
+const r = await new Promise((resolveRun) => {
+  const child = spawn(perry, ["compile", "src/main.ts", "-o", `native/${binaryName}`], {
+    cwd: CLIENT_DIR,
+    stdio: ["inherit", "pipe", "pipe"],
+    env: { ...process.env, PERRY_LLVM_CLANG: clang, PERRY_LIB_DIR: libDir },
+  });
+  let stdout = "";
+  let stderr = "";
+  child.stdout.on("data", (chunk) => {
+    process.stdout.write(chunk);
+    stdout += chunk;
+  });
+  child.stderr.on("data", (chunk) => {
+    process.stderr.write(chunk);
+    stderr += chunk;
+  });
+  child.on("error", (e) => resolveRun({ status: null, signal: null, spawnError: e, output: "" }));
+  // "close" fires after the stdio streams are drained ("exit" can fire before)
+  child.on("close", (status, signal) => resolveRun({ status, signal, output: `${stdout}\n${stderr}` }));
 });
+if (r.spawnError) {
+  console.error(`build-native: failed to start perry: ${r.spawnError.message}`);
+  process.exit(1);
+}
 if (r.status !== 0) {
   console.error(`build-native: perry compile failed (exit ${r.status ?? r.signal})`);
   process.exit(r.status || 1);
 }
 if (!existsSync(binary)) {
   console.error(`build-native: perry exited 0 but ${binary} is missing`);
+  process.exit(1);
+}
+
+// 1b. check that Perry's strip-dedup completed (see scripts/strip-dedup-check.mjs)
+const dedup = checkStripDedup(r.output);
+if (!dedup.ok) {
+  rmSync(binary, { force: true });
+  console.error("build-native: [strip-dedup] did not complete; the binary is not usable and was removed:");
+  for (const p of dedup.problems) console.error(`  - ${p}`);
+  console.error(`build-native: put an llvm-nm / llvm-objcopy that can read Perry's archives (LLVM 23.1,
+  rust nightly-2026-09-21 \`llvm-tools\`) at the front of PATH and build again, e.g.
+    PATH=<llvm-tools bin dir>:$PATH PERRY_HOME=... node scripts/build-native.mjs
+  How to obtain them: README.md ("ネイティブ client" section).`);
   process.exit(1);
 }
 

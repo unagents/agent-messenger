@@ -1,0 +1,7 @@
+Linking (with stdlib)...
+[strip-dedup] shared-deps drop skipped for /Users/x/toolchain/perry/rel/libperry_ext_net.a (non-fatal): failed to inspect defined symbols of libperry_ext_net.a
+[strip-dedup] Processing well-known wrapper: /Users/x/toolchain/perry/rel/libperry_ext_net.a
+[strip-dedup] wrapper symbol rewrite skipped for /Users/x/toolchain/perry/rel/libperry_ext_net.a (non-fatal): objcopy not found
+[strip-dedup] warning: archive preparation was incomplete; linking the full stdlib before wrappers to keep its allocator and runtime authoritative
+[strip-dedup] runtime stdlib-stub localize skipped (non-fatal): llvm-objcopy not found
+Wrote executable: native/messenger-client-darwin-arm64

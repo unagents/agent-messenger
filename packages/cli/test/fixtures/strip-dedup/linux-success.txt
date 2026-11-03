@@ -1,0 +1,14 @@
+  note: Perry workspace source not found — linking the prebuilt full stdlib (larger binary). Set PERRY_WORKSPACE_ROOT to a source checkout to enable size-optimized rebuilds.
+  well-known (no-auto): routing `net` → /home/vagrant/work/mcp-tools/agent-messenger/toolchain/perry/rel/libperry_ext_net.a (#466)
+Asset manifest: /home/vagrant/work/mcp-tools/agent-messenger/wt-dedup/packages/client/node_modules/.cache/perry/assets.json
+Linking (with stdlib)...
+[strip-dedup] libperry_ext_net.a: keeping bundled 00c879ee3285a50d-montgomery.o — needed by a kept sibling and not safely replaceable by stdlib
+[strip-dedup] libperry_ext_net.a: keeping bundled 00c879ee3285a50d-montgomery_inv.o — needed by a kept sibling and not safely replaceable by stdlib
+[strip-dedup] libperry_ext_net.a: keeping bundled alloc-96321d5fcf697dce.alloc.919e4e253a7241a8-cgu.0.rcgu.o — needed by a kept sibling and not safely replaceable by stdlib
+[strip-dedup] libperry_ext_net.a: keeping bundled std-16de4ef7b3d1c617.std.e50db66ea271782b-cgu.0.rcgu.o — needed by a kept sibling and not safely replaceable by stdlib
+[strip-dedup] libperry_ext_net.a: keeping bundled tokio-95086d72bd6e32c6.tokio.c60a297464de1711-cgu.0.rcgu.o — needed by a kept sibling and not safely replaceable by stdlib
+[strip-dedup] libperry_ext_net.a: dropped 706 bundled member(s) also provided by stdlib (shared transitive deps, fixed-point safe)
+[strip-dedup] Processing well-known wrapper: /tmp/claude-1002/perry_strip_10/_libperry_ext_net.a_nosharedeps.lib
+[strip-dedup] _libperry_ext_net.a_nosharedeps.lib: localized wrapper-only globals in 4 member(s)
+Wrote executable: native/messenger-client-linux-x64
+Binary size: 32.6MB
