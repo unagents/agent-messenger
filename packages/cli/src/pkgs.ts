@@ -18,6 +18,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, statSync, utimesSync, writ
 import { join } from "node:path";
 import type { LoaderConfig } from "./config.js";
 import { fullSpec } from "./config.js";
+import { VERSION } from "./version.js";
 
 export type Logger = (msg: string) => void;
 
@@ -39,6 +40,8 @@ export interface EnsureOptions {
    */
   optional?: boolean;
   log?: Logger;
+  /** CLI version used for the "cache older than the CLI" rule (default: this CLI's `VERSION`). */
+  cliVersion?: string;
 }
 
 export const defaultLog: Logger = (msg) => console.error(`[agent-messenger loader] ${msg}`);
@@ -69,6 +72,44 @@ export function cacheDir(cfg: LoaderConfig, name: string, specValue: string): st
   return join(cfg.pkgsDir, `${shortName(name)}@${sanitizeSegment(specValue.trim() || "latest")}`, cacheKey(cfg.registry, spec));
 }
 
+const SEMVER = /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/;
+
+/** semver order (build metadata ignored; a prerelease is lower than its release). `null` when either side is not a version. */
+export function compareVersions(a: string, b: string): number | null {
+  const ma = a.trim().match(SEMVER);
+  const mb = b.trim().match(SEMVER);
+  if (!ma || !mb) return null;
+  for (let i = 1; i <= 3; i++) {
+    const d = Number(ma[i]) - Number(mb[i]);
+    if (d !== 0) return Math.sign(d);
+  }
+  const pa = ma[4];
+  const pb = mb[4];
+  if (pa === undefined && pb === undefined) return 0;
+  if (pa === undefined) return 1;
+  if (pb === undefined) return -1;
+  const ia = pa.split(".");
+  const ib = pb.split(".");
+  for (let i = 0; i < Math.max(ia.length, ib.length); i++) {
+    if (ia[i] === undefined) return -1;
+    if (ib[i] === undefined) return 1;
+    const na = /^\d+$/.test(ia[i]);
+    const nb = /^\d+$/.test(ib[i]);
+    if (na && nb) {
+      const d = Number(ia[i]) - Number(ib[i]);
+      if (d !== 0) return Math.sign(d);
+    } else if (na !== nb) {
+      return na ? -1 : 1;
+    } else if (ia[i] !== ib[i]) {
+      return ia[i] < ib[i] ? -1 : 1;
+    }
+  }
+  return 0;
+}
+
+/** Records the CLI version for which the registry was already re-checked because the cache was older than the CLI. */
+const CLI_CHECKED = ".cli-checked";
+
 function ageHours(file: string): number {
   return (Date.now() - statSync(file).mtimeMs) / 3_600_000;
 }
@@ -93,11 +134,19 @@ export function ensurePackage(cfg: LoaderConfig, name: string, specValue: string
   const stamp = join(dir, ".installed");
   const missing = join(dir, ".missing");
   const floating = !isPinned(spec) && cfg.ttlHours >= 0;
+  const cliVersion = opts.cliVersion ?? VERSION;
+  const checked = join(dir, CLI_CHECKED);
 
   const needsInstall = (): string | null => {
     if (cfg.refresh) return "refresh requested";
     if (!existsSync(pkgJson) || !existsSync(stamp)) return "not installed";
     if (!floating) return null;
+    // The cache is older than this CLI: do not wait for the TTL, but only once per CLI version
+    // (the registry may itself be older than the CLI, e.g. a prerelease CLI).
+    const cached = readVersion(pkgJson);
+    if (compareVersions(cached, cliVersion) === -1 && readCliChecked(checked) !== cliVersion) {
+      return `floating spec, cached ${cached} is older than CLI ${cliVersion}`;
+    }
     const ageH = ageHours(stamp);
     if (ageH >= cfg.ttlHours) return `floating spec, last checked ${ageH.toFixed(1)}h ago`;
     return null;
@@ -129,6 +178,7 @@ export function ensurePackage(cfg: LoaderConfig, name: string, specValue: string
     if (r.status !== 0) {
       if (existsSync(pkgJson)) {
         log(`install failed, using cached ${name}`);
+        if (floating) writeFileSync(checked, cliVersion);
       } else if (opts.optional) {
         log(`${name} not available (install exit ${r.status})`);
         touch(missing);
@@ -139,6 +189,7 @@ export function ensurePackage(cfg: LoaderConfig, name: string, specValue: string
       }
     } else {
       touch(stamp);
+      if (floating) writeFileSync(checked, cliVersion);
       rmSync(missing, { force: true });
       log(`ready: ${name}@${readVersion(pkgJson)}`);
     }
@@ -150,6 +201,14 @@ export function ensurePackage(cfg: LoaderConfig, name: string, specValue: string
     process.exit(1);
   }
   return { name, spec, dir, pkgDir, version: readVersion(pkgJson) };
+}
+
+function readCliChecked(file: string): string {
+  try {
+    return readFileSync(file, "utf8").trim();
+  } catch {
+    return "";
+  }
 }
 
 function readVersion(pkgJson: string): string {

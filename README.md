@@ -225,7 +225,7 @@ npx -y @unagents/messenger send master-cap "作業完了"
 | `AGENT_MESSENGER_BROKER_SPEC` / `AGENT_MESSENGER_CLIENT_SPEC` | `latest` | 取得する版（`1.2.3` / `file:…` など npm spec） |
 | `AGENT_MESSENGER_PKGS_DIR` | `~/.agent-messenger/pkgs` | キャッシュ先 |
 | `AGENT_MESSENGER_REFRESH`（旧 `AGENT_MESSENGER_CORE_REFRESH` も可） | なし | `1` で再取得 |
-| `AGENT_MESSENGER_TTL_HOURS` | `24` | `latest` 等の再確認間隔。`0` で毎回 |
+| `AGENT_MESSENGER_TTL_HOURS` | `24` | `latest` 等の再確認間隔。`0` で毎回。キャッシュの版が CLI より古い時は、間隔を待たず再確認する（CLI の版ごとに 1 回） |
 | `AGENT_MESSENGER_CLIENT` | なし（auto） | `native` / `node` で client の種類を固定 |
 
 ## ビルドとテスト

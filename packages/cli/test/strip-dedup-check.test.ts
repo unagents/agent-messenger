@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { checkStripDedup } from "../../../scripts/strip-dedup-check.mjs";
+import { checkStripDedup, outputsToRemoveOnFailure } from "../../../scripts/strip-dedup-check.mjs";
 
 const fixture = (name: string) =>
   readFileSync(join(dirname(fileURLToPath(import.meta.url)), "fixtures", "strip-dedup", name), "utf8");
@@ -69,6 +69,17 @@ describe("checkStripDedup (scripts/build-native.mjs)", () => {
     const r = checkStripDedup("[strip-dedup] libperry_ext_net.a: dropped 706 bundled member(s) also provided by stdlib\n");
     expect(r.ok).toBe(false);
     expect(r.problems.join("\n")).toContain("success marker missing");
+  });
+
+  it("on failure, removes both the Perry output and the platform package copy", () => {
+    expect(outputsToRemoveOnFailure("/r", "linux-x64")).toEqual([
+      "/r/packages/client/native/messenger-client-linux-x64",
+      "/r/packages/client-linux-x64/bin/messenger-client",
+    ]);
+    expect(outputsToRemoveOnFailure("/r", "darwin-arm64")).toEqual([
+      "/r/packages/client/native/messenger-client-darwin-arm64",
+      "/r/packages/client-darwin-arm64/bin/messenger-client",
+    ]);
   });
 
   it("handles CRLF line endings", () => {

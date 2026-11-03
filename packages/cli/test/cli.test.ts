@@ -1,6 +1,8 @@
-import { existsSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { compareVersions } from "../src/pkgs.js";
 import { cacheDir, fullSpec, isPinned, loadLoaderConfig, nativeClientName, DEFAULT_REGISTRY, VERSION } from "../src/index.js";
 import type { MockRegistry } from "./helpers.js";
 import { brokerStub, clientStub, cliEnv, CLIENT_PKG_DIR, nativeStub, NPM_CACHE, runCli, startBroker, startRegistry, tmp } from "./helpers.js";
@@ -161,6 +163,152 @@ describe("package fetch + cache (ported from test/loader.test.js)", () => {
       const r2 = await runCli(["mcp"], cliEnv(registry, pkgs, { AGENT_MESSENGER_CLIENT_SPEC: "1.0.0", AGENT_MESSENGER_CLIENT: "node", AGENT_MESSENGER_TTL_HOURS: "0" }));
       expect(r2.stderr).not.toMatch(/installing/);
     } finally {
+      rmSync(pkgs, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("compareVersions", () => {
+  it("orders like semver (prerelease < release, numeric identifiers numerically)", () => {
+    expect(compareVersions("0.12.0", "0.12.1")).toBe(-1);
+    expect(compareVersions("0.12.1", "0.12.1")).toBe(0);
+    expect(compareVersions("0.12.10", "0.12.9")).toBe(1);
+    expect(compareVersions("1.0.0", "0.99.99")).toBe(1);
+    expect(compareVersions("0.12.1-rc.1", "0.12.1")).toBe(-1);
+    expect(compareVersions("0.12.1", "0.12.1-rc.1")).toBe(1);
+    expect(compareVersions("1.0.0-alpha", "1.0.0-alpha.1")).toBe(-1);
+    expect(compareVersions("1.0.0-alpha.2", "1.0.0-alpha.10")).toBe(-1);
+    expect(compareVersions("1.0.0-1", "1.0.0-alpha")).toBe(-1);
+    expect(compareVersions("1.0.0-alpha", "1.0.0-beta")).toBe(-1);
+    expect(compareVersions("1.0.0+a", "1.0.0+b")).toBe(0);
+    expect(compareVersions("", "1.0.0")).toBeNull();
+    expect(compareVersions("latest", "1.0.0")).toBeNull();
+  });
+});
+
+describe("floating spec: cache older than the CLI forces a re-check", () => {
+  const CLI_VERSION = (JSON.parse(readFileSync(fileURLToPath(new URL("../package.json", import.meta.url)), "utf8")) as { version: string }).version;
+  const OLD = "0.0.1";
+  let registry: MockRegistry;
+  let stubs: string;
+  beforeAll(async () => {
+    registry = await startRegistry();
+    stubs = tmp("am-cli-stubs-");
+  });
+  afterAll(async () => {
+    await registry.close();
+    rmSync(stubs, { recursive: true, force: true });
+  });
+
+  const cacheEntry = (pkgs: string, short: string) => {
+    const base = join(pkgs, short);
+    return join(base, readdirSync(base)[0]);
+  };
+  const clientRequests = () => registry.requests.filter((n) => n === "@unagents/messenger-client").length;
+
+  it("cached version older than the CLI: re-checks without waiting for the TTL (stale cache left by an older CLI)", async () => {
+    registry.publish(clientStub(stubs, OLD));
+    const pkgs = tmp("am-cli-pkgs-");
+    const env = cliEnv(registry, pkgs, { AGENT_MESSENGER_CLIENT: "node" });
+    try {
+      expect((await runCli(["mcp"], env)).stdout).toMatch(new RegExp(`node-client v${OLD.replace(/\./g, "\\.")}`));
+      // an older CLI never wrote the marker: forget it, and publish what is now `latest`
+      rmSync(join(cacheEntry(pkgs, CLIENT_CACHE), ".cli-checked"), { force: true });
+      registry.publish(clientStub(stubs, CLI_VERSION));
+      const r = await runCli(["mcp"], env);
+      expect(r.status, r.stderr).toBe(0);
+      expect(r.stderr).toMatch(new RegExp(`installing @unagents/messenger-client@latest \\(floating spec, cached ${OLD.replace(/\./g, "\\.")} is older than CLI ${CLI_VERSION.replace(/\./g, "\\.")}\\)`));
+      expect(r.stdout).toMatch(new RegExp(`node-client v${CLI_VERSION.replace(/\./g, "\\.")}`));
+    } finally {
+      rmSync(pkgs, { recursive: true, force: true });
+    }
+  });
+
+  it("registry still older than the CLI: asks once per CLI version, then goes back to the TTL rule", async () => {
+    registry.publish(clientStub(stubs, OLD));
+    const pkgs = tmp("am-cli-pkgs-");
+    const env = cliEnv(registry, pkgs, { AGENT_MESSENGER_CLIENT: "node" });
+    try {
+      await runCli(["mcp"], env);
+      rmSync(join(cacheEntry(pkgs, CLIENT_CACHE), ".cli-checked"), { force: true });
+      const forced = await runCli(["mcp"], env);
+      expect(forced.stderr).toMatch(/is older than CLI/);
+      const before = clientRequests();
+      const again = await runCli(["mcp"], env);
+      expect(again.status, again.stderr).toBe(0);
+      expect(again.stderr).not.toMatch(/installing/);
+      expect(clientRequests()).toBe(before);
+    } finally {
+      rmSync(pkgs, { recursive: true, force: true });
+    }
+  });
+
+  it("cached version equal to the CLI: TTL rule as before", async () => {
+    registry.publish(clientStub(stubs, CLI_VERSION));
+    const pkgs = tmp("am-cli-pkgs-");
+    const env = cliEnv(registry, pkgs, { AGENT_MESSENGER_CLIENT: "node" });
+    try {
+      await runCli(["mcp"], env);
+      rmSync(join(cacheEntry(pkgs, CLIENT_CACHE), ".cli-checked"), { force: true });
+      registry.publish(clientStub(stubs, "99.0.0"));
+      const r = await runCli(["mcp"], env);
+      expect(r.stderr).not.toMatch(/installing/);
+      expect(r.stdout).toMatch(new RegExp(`node-client v${CLI_VERSION.replace(/\./g, "\\.")}`));
+      // TTL 0 still re-checks every run
+      const ttl0 = await runCli(["mcp"], { ...env, AGENT_MESSENGER_TTL_HOURS: "0" });
+      expect(ttl0.stderr).toMatch(/\(floating spec, last checked/);
+      expect(ttl0.stdout).toMatch(/node-client v99\.0\.0/);
+    } finally {
+      rmSync(pkgs, { recursive: true, force: true });
+    }
+  });
+
+  it("cached version newer than the CLI: TTL rule as before", async () => {
+    registry.publish(clientStub(stubs, "99.0.0"));
+    const pkgs = tmp("am-cli-pkgs-");
+    const env = cliEnv(registry, pkgs, { AGENT_MESSENGER_CLIENT: "node" });
+    try {
+      await runCli(["mcp"], env);
+      rmSync(join(cacheEntry(pkgs, CLIENT_CACHE), ".cli-checked"), { force: true });
+      const r = await runCli(["mcp"], env);
+      expect(r.stderr).not.toMatch(/installing/);
+    } finally {
+      rmSync(pkgs, { recursive: true, force: true });
+    }
+  });
+
+  it("pinned spec is not affected, even when the cached version is older than the CLI", async () => {
+    registry.publish(clientStub(stubs, OLD));
+    registry.publish(clientStub(stubs, CLI_VERSION));
+    const pkgs = tmp("am-cli-pkgs-");
+    const env = cliEnv(registry, pkgs, { AGENT_MESSENGER_CLIENT: "node", AGENT_MESSENGER_CLIENT_SPEC: OLD });
+    try {
+      await runCli(["mcp"], env);
+      const r = await runCli(["mcp"], env);
+      expect(r.status, r.stderr).toBe(0);
+      expect(r.stderr).not.toMatch(/installing/);
+      expect(r.stdout).toMatch(new RegExp(`node-client v${OLD.replace(/\./g, "\\.")}`));
+      expect(existsSync(join(cacheEntry(pkgs, `messenger-client@${OLD}`), ".cli-checked"))).toBe(false);
+    } finally {
+      rmSync(pkgs, { recursive: true, force: true });
+    }
+  });
+
+  it("applies to the native platform package too", async () => {
+    registry.publish(clientStub(stubs, CLI_VERSION));
+    registry.publish(nativeStub(stubs, OLD));
+    const pkgs = tmp("am-cli-pkgs-");
+    const env = cliEnv(registry, pkgs);
+    const nativeCache = `messenger-client-${process.platform}-${process.arch}@latest`;
+    try {
+      expect((await runCli(["mcp"], env)).stdout).toMatch(new RegExp(`native-client v${OLD.replace(/\./g, "\\.")}`));
+      rmSync(join(cacheEntry(pkgs, nativeCache), ".cli-checked"), { force: true });
+      registry.publish(nativeStub(stubs, "99.0.0"));
+      const r = await runCli(["mcp"], env);
+      expect(r.stderr).toMatch(new RegExp(`installing ${NATIVE}@latest \\(floating spec, cached ${OLD.replace(/\./g, "\\.")} is older than CLI`));
+      expect(r.stdout).toMatch(/native-client v99\.0\.0/);
+    } finally {
+      registry.unpublish(NATIVE);
       rmSync(pkgs, { recursive: true, force: true });
     }
   });

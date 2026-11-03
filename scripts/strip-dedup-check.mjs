@@ -12,7 +12,9 @@
  * "Perry workspace source not found" note) are ignored.
  */
 
-export const SUCCESS_MARKER = /localized wrapper-only globals/;
+import { join } from "node:path";
+
+export const SUCCESS_MARKER =/localized wrapper-only globals/;
 
 /** [pattern, label] — a `[strip-dedup]` line matching any of these means the dedup did not complete. */
 const FAILURE_PATTERNS = [
@@ -21,6 +23,20 @@ const FAILURE_PATTERNS = [
   [/not found/, "not found"],
   [/failed to inspect/, "failed to inspect"],
 ];
+
+/**
+ * Files to remove when the check fails: the Perry output and the copy a previous successful
+ * build left in the platform package (so a stale binary cannot end up in `npm pack`).
+ * @param {string} root repo root
+ * @param {string} target `<platform>-<arch>`
+ * @returns {string[]}
+ */
+export function outputsToRemoveOnFailure(root, target) {
+  return [
+    join(root, "packages", "client", "native", `messenger-client-${target}`),
+    join(root, "packages", `client-${target}`, "bin", "messenger-client"),
+  ];
+}
 
 /**
  * @param {string} text whole compile output (stdout + stderr)

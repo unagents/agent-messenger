@@ -26,7 +26,7 @@ import { spawn } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { checkStripDedup } from "./strip-dedup-check.mjs";
+import { checkStripDedup, outputsToRemoveOnFailure } from "./strip-dedup-check.mjs";
 
 const ROOT = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const CLIENT_DIR = join(ROOT, "packages", "client");
@@ -114,8 +114,14 @@ if (!existsSync(binary)) {
 // 1b. check that Perry's strip-dedup completed (see scripts/strip-dedup-check.mjs)
 const dedup = checkStripDedup(r.output);
 if (!dedup.ok) {
-  rmSync(binary, { force: true });
+  const removed = [];
+  for (const f of outputsToRemoveOnFailure(ROOT, target)) {
+    if (!existsSync(f)) continue;
+    rmSync(f, { force: true });
+    removed.push(f);
+  }
   console.error("build-native: [strip-dedup] did not complete; the binary is not usable and was removed:");
+  for (const f of removed) console.error(`  removed: ${f}`);
   for (const p of dedup.problems) console.error(`  - ${p}`);
   console.error(`build-native: put an llvm-nm / llvm-objcopy that can read Perry's archives (LLVM 23.1,
   rust nightly-2026-09-21 \`llvm-tools\`) at the front of PATH and build again, e.g.
