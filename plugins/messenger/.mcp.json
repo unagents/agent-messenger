@@ -4,11 +4,11 @@
       "command": "npx",
       "args": [
         "-y",
-        "@unagents/messenger@0.12.1",
+        "@unagents/messenger@0.12.2",
         "mcp"
       ],
       "env": {
-        "AGENT_MESSENGER_CLIENT_SPEC": "0.12.1"
+        "AGENT_MESSENGER_CLIENT_SPEC": "0.12.2"
       }
     }
   }
